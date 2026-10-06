@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS email_queue;
+DROP INDEX IF EXISTS idx_vtokens_user_active;
+DROP INDEX IF EXISTS idx_vtokens_otp;
+ALTER TABLE users DROP COLUMN IF EXISTS activated_method;
+ALTER TABLE users DROP COLUMN IF EXISTS activated_at;
+ALTER TABLE verification_tokens DROP COLUMN IF EXISTS consumed_at;
+ALTER TABLE verification_tokens DROP COLUMN IF EXISTS activated_by;
+ALTER TABLE verification_tokens DROP COLUMN IF EXISTS burned_reason;
+ALTER TABLE verification_tokens DROP COLUMN IF EXISTS superseded;
+ALTER TABLE verification_tokens DROP COLUMN IF EXISTS otp_hash;

@@ -1,0 +1,517 @@
+{
+  "active_work": {
+    "assigned_role": null,
+    "blockers": [],
+    "current_task": null,
+    "current_use_case": null,
+    "status": "IDLE"
+  },
+  "architecture": {
+    "adapters": "internal/adapter",
+    "language": "Go",
+    "pattern": "Hexagonal / Clean Architecture",
+    "ports": "internal/domain",
+    "use_cases": "internal/service"
+  },
+  "last_updated": "2026-10-06T06:00:00Z",
+  "metrics": {
+    "completed": 11,
+    "in_progress": 22,
+    "pending": 0,
+    "total_use_cases": 33
+  },
+  "project": "auth-identity-service",
+  "specs": [
+    {
+      "dependencies": [],
+      "folder": "spec/CU-REG-01-registro-credenciales",
+      "id": "CU-REG-01",
+      "name": "Registro Clasico con Credenciales",
+      "priority": "HIGH",
+      "status": "COMPLETED",
+      "tasks_summary": {
+        "completed": 15,
+        "total": 15
+      }
+    },
+    {
+      "dependencies": [
+        "CU-REG-01"
+      ],
+      "folder": "spec/CU-REG-02-verificacion-identidad",
+      "id": "CU-REG-02",
+      "name": "Verificacion de Identidad Obligatoria",
+      "priority": "HIGH",
+      "status": "COMPLETED",
+      "tasks_summary": {
+        "completed": 15,
+        "total": 15
+      }
+    },
+    {
+      "dependencies": [
+        "CU-REG-01",
+        "CU-REG-02"
+      ],
+      "folder": "spec/CU-REG-03-validacion-unicidad",
+      "id": "CU-REG-03",
+      "name": "Validacion de Unicidad en Tiempo Real",
+      "priority": "HIGH",
+      "status": "COMPLETED",
+      "tasks_summary": {
+        "completed": 15,
+        "total": 15
+      }
+    },
+    {
+      "dependencies": [
+        "CU-REG-01",
+        "CU-REG-02",
+        "CU-REG-03"
+      ],
+      "folder": "spec/CU-REG-04-registro-federado",
+      "id": "CU-REG-04",
+      "name": "Registro Federado OAuth2 OIDC",
+      "priority": "HIGH",
+      "status": "COMPLETED",
+      "tasks_summary": {
+        "completed": 15,
+        "total": 15
+      }
+    },
+    {
+      "dependencies": [
+        "CU-REG-01",
+        "CU-REG-04"
+      ],
+      "folder": "spec/CU-REG-05-aceptacion-terminos",
+      "id": "CU-REG-05",
+      "name": "Aceptacion de Terminos y Politicas",
+      "priority": "HIGH",
+      "status": "COMPLETED",
+      "tasks_summary": {
+        "completed": 15,
+        "total": 15
+      }
+    },
+    {
+      "dependencies": [
+        "CU-REG-04"
+      ],
+      "folder": "spec/CU-REG-06-vinculacion-cuentas",
+      "id": "CU-REG-06",
+      "name": "Vinculacion y Desvinculacion de Cuentas",
+      "priority": "HIGH",
+      "status": "COMPLETED",
+      "tasks_summary": {
+        "completed": 15,
+        "total": 15
+      }
+    },
+    {
+      "id": "CU-AUTH-01",
+      "name": "Autenticacion Estandar",
+      "folder": "spec/CU-AUTH-01-autenticacion-estandar",
+      "status": "COMPLETED",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-REG-01",
+        "CU-REG-02"
+      ],
+      "tasks_summary": {
+        "completed": 15,
+        "total": 15
+      }
+    },
+    {
+      "id": "CU-AUTH-02",
+      "name": "Autenticacion Multifactor TOTP",
+      "folder": "spec/CU-AUTH-02-mfa-totp",
+      "status": "COMPLETED",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-AUTH-01"
+      ],
+      "tasks_summary": {
+        "completed": 15,
+        "total": 15
+      }
+    },
+    {
+      "id": "CU-AUTH-03",
+      "name": "Codigos de Respaldo para MFA",
+      "folder": "spec/CU-AUTH-03-backup-codes",
+      "status": "COMPLETED",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-AUTH-01",
+        "CU-AUTH-02"
+      ],
+      "tasks_summary": {
+        "completed": 15,
+        "total": 15
+      }
+    },
+    {
+      "id": "CU-AUTH-04",
+      "name": "Emision y Gestion de Tokens Enterprise",
+      "folder": "spec/CU-AUTH-04-emision-tokens",
+      "status": "COMPLETED",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-AUTH-01",
+        "CU-AUTH-02",
+        "CU-REG-04"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 15
+      }
+    },
+    {
+      "id": "CU-AUTH-05",
+      "name": "Inicio de Sesion sin Contrasena",
+      "folder": "spec/CU-AUTH-05-passwordless",
+      "status": "COMPLETED",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-REG-02",
+        "CU-AUTH-01",
+        "CU-AUTH-04"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 15
+      }
+    },
+    {
+      "id": "CU-AUTH-06",
+      "name": "Autenticacion Reforzada Step-Up",
+      "folder": "spec/CU-AUTH-06-step-up-auth",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-AUTH-01",
+        "CU-AUTH-02"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-CRED-01",
+      "name": "Recuperacion de Contrasena",
+      "folder": "spec/CU-CRED-01-recuperacion-password",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-REG-01",
+        "CU-AUTH-04"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-CRED-02",
+      "name": "Cambio de Contrasena desde Sesion Activa",
+      "folder": "spec/CU-CRED-02-cambio-password",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-CRED-01",
+        "CU-AUTH-06"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-CRED-03",
+      "name": "Actualizacion de Correo Electronico",
+      "folder": "spec/CU-CRED-03-actualizacion-email",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-REG-02",
+        "CU-AUTH-06"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-SES-01",
+      "name": "Cierre de Sesion Individual",
+      "folder": "spec/CU-SES-01-logout",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-AUTH-04"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-SES-02",
+      "name": "Cierre de Sesion Global",
+      "folder": "spec/CU-SES-02-logout-global",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-AUTH-04",
+        "CU-SES-01"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-SES-03",
+      "name": "Listado y Terminacion Selectiva",
+      "folder": "spec/CU-SES-03-gestion-sesiones",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-AUTH-04",
+        "CU-SES-01"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      },
+      "open_questions": [
+        "Q4-404-supuesto-a-confirmar",
+        "Q5-lastseen-supuesto-a-confirmar"
+      ]
+    },
+    {
+      "id": "CU-SES-04",
+      "name": "Renovacion Controlada y Deteccion de Reuso",
+      "folder": "spec/CU-SES-04-token-rotation",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-AUTH-04",
+        "CU-SES-02"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-SEC-01",
+      "name": "Bloqueo por Intentos Fallidos",
+      "folder": "spec/CU-SEC-01-brute-force",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-AUTH-01",
+        "CU-AUTH-02",
+        "CU-AUTH-06"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-SEC-02",
+      "name": "Rate Limiting y Throttling",
+      "folder": "spec/CU-SEC-02-rate-limiting",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-SEC-01"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-SEC-03",
+      "name": "Deteccion de Viaje Imposible",
+      "folder": "spec/CU-SEC-03-impossible-travel",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-AUTH-01",
+        "CU-AUTH-04"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-SEC-04",
+      "name": "Trazabilidad y Logs de Auditoria",
+      "folder": "spec/CU-SEC-04-audit-trail",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-SEC-05",
+      "name": "Eliminacion de Cuenta",
+      "folder": "spec/CU-SEC-05-derecho-olvido",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-AUTH-06",
+        "CU-SES-02"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-SEC-06",
+      "name": "Gestion de Roles y Alcances",
+      "folder": "spec/CU-SEC-06-rbac-scopes",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-AUTH-04"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-SEC-07",
+      "name": "Deteccion de Dispositivo Desconocido",
+      "folder": "spec/CU-SEC-07-device-fingerprint",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-AUTH-01"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      },
+      "open_questions": [
+        "Q1-huella-gruesa-supuesto-a-confirmar"
+      ]
+    },
+    {
+      "id": "CU-M2M-01",
+      "name": "Client Credentials Grant",
+      "folder": "spec/CU-M2M-01-client-credentials",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-AUTH-04",
+        "CU-SEC-06"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-M2M-02",
+      "name": "Gestion de API Keys",
+      "folder": "spec/CU-M2M-02-api-keys",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-M2M-01"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-CRYP-01",
+      "name": "Publicacion de JWKS Discovery",
+      "folder": "spec/CU-CRYP-01-jwks-discovery",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-AUTH-04"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-CRYP-02",
+      "name": "Rotacion Programada de Claves",
+      "folder": "spec/CU-CRYP-02-rotacion-claves",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-CRYP-01",
+        "CU-AUTH-04"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-CRYP-03",
+      "name": "Mitigacion de Desastres por Fuga",
+      "folder": "spec/CU-CRYP-03-desastre-criptografico",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-CRYP-01",
+        "CU-CRYP-02"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-PRIV-01",
+      "name": "Portabilidad de Datos Personales",
+      "folder": "spec/CU-PRIV-01-portabilidad-datos",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-AUTH-06",
+        "CU-SEC-04"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    },
+    {
+      "id": "CU-PRIV-02",
+      "name": "Gestion Granular de Consentimientos",
+      "folder": "spec/CU-PRIV-02-gestion-consentimientos",
+      "status": "READY_FOR_DEV",
+      "priority": "HIGH",
+      "dependencies": [
+        "CU-REG-05"
+      ],
+      "tasks_summary": {
+        "total": 15,
+        "completed": 0
+      }
+    }
+  ],
+  "version": "1.0.0"
+}

@@ -1,0 +1,324 @@
+1. Flujo de Registro (Sign Up)
+• Registro clásico con credenciales: Creación de cuenta mediante correo electrónico y contraseña con validaciones estrictas de formato y seguridad.
+• Verificación de identidad obligatoria: Envío automático y validación de códigos de un solo uso (OTP) o enlaces mágicos por email antes de activar la cuenta.
+• Validación de unicidad en tiempo real: Comprobación instantánea de que el correo electrónico no esté registrado previamente.
+• Registro federado (Social Auth / OAuth2): Creación de cuenta simplificada utilizando proveedores externos (Google, Apple, Microsoft, GitHub).
+• Aceptación de términos y políticas: Registro obligatorio del consentimiento explícito del usuario a los términos de servicio y políticas de privacidad (esencial para normativas como GDPR).
+2. Flujo de Inicio de Sesión (Sign In)
+• Autenticación estándar: Validación segura de credenciales contra la base de datos (PostgreSQL) usando hashing avanzado.
+• Autenticación multifactor (MFA/2FA): Segundo paso de verificación mediante aplicaciones autenticadoras (TOTP como Google Authenticator) o SMS/Email.
+• Emisión y gestión de tokens: Generación del par de tokens empresariales: un Access Token (JWT de corta duración) y un Refresh Token (almacenado de forma segura).
+• Inicio de sesión sin contraseña (Passwordless): Acceso directo mediante un enlace temporal enviado al correo electrónico o un código OTP.
+3. Recuperación y Gestión de Credenciales
+• Recuperación de contraseña (Olvidé mi contraseña): Flujo seguro que genera un token de un solo uso con expiración corta (ej. 10 minutos) enviado por correo para restablecer la clave.
+• Cambio de contraseña desde la sesión: Actualización de la contraseña requiriendo la clave actual como medida de seguridad adicional.
+• Cambio o actualización de correo electrónico: Modificación del email principal que requiere verificar el nuevo correo antes de hacer el cambio efectivo.
+4. Control y Gestión de Sesiones
+• Cierre de sesión único (Logout): Invalidación inmediata del Refresh Token actual en la base de datos o lista negra de Redis.
+• Cierre de sesión global (Log out de todos los dispositivos): Revocación masiva de todos los Refresh Tokens activos asociados al ID del usuario (útil si sospecha que lo hackearon).
+• Listado de sesiones activas: Consulta enterprise donde el usuario puede ver los dispositivos, navegadores, direcciones IP y ubicaciones aproximadas donde tiene su sesión abierta.
+• Renovación automática de sesión (Token Refresh): Endpoint transparente para el frontend que emite un nuevo Access Token válido utilizando el Refresh Token de la Cookie HttpOnly.
+5. Seguridad Proactiva y Defensa (Enterprise)
+• Bloqueo de cuenta por intentos fallidos: Suspensión temporal de la cuenta tras N intentos erróneos para mitigar ataques de fuerza bruta.
+• Control de tasa de peticiones (Rate Limiting): Límite máximo de peticiones por minuto por dirección IP o por cuenta (gestionado en Redis).
+• Detección de comportamiento anómalo: Bloqueo preventivo o exigencia de MFA si se detecta un inicio de sesión desde un país o dispositivo completamente inusual.
+• Historial y logs de auditoría (Audit Trail): Registro asincrónico (vía colas) de cada evento crítico (registro, login fallido, cambio de clave, IP de origen) para auditorías de cumplimiento legal.
+
+
+
+
+📁 auth-identity-service/            # <--- Raíz del proyecto
+│
+├── 📁 cmd/
+│   ├── 📁 api/
+│   │   └── main.go                 # <--- EL ARCHIVO RAÍZ (Punto de entrada principal)
+│   └── 📁 worker/
+│       └── main.go                 # Punto de entrada para el consumidor de Kafka
+│
+├── 📁 internal/
+│   ├── 📁 domain/                  # 1. EL NÚCLEO (Modelos y Puertos)
+│   │   ├── user.go
+│   │   └── ports.go                # Interfaces: UserRepository, IdentityProvider, EventPublisher
+│   │
+│   ├── 📁 service/                 # 2. LA LÓGICA (Casos de Uso separados)
+│   │   ├── credentials_auth.go     # Lógica exclusiva de Login/Registro tradicional (con contraseña)
+│   │   └── google_auth.go          # Lógica exclusiva de Login/Registro federado con Google
+│   │
+│   └── 📁 adapter/                 # 3. LA INFRAESTRUCTURA (Mundo Exterior)
+│       ├── 📁 persistencia/        # Postgres y Redis
+│       │   └── postgres/user_repository.go
+│       ├── 📁 colas/               # Kafka Producer
+│       │   └── kafka/producer.go
+│       ├── 📁 identity/            # Clientes de APIs Externas
+│       │   └── google_client.go    # Adaptador real que habla con la API de Google
+│       └── 📁 http/                # Rutas y Handlers Web
+│           └── handlers/
+│               ├── auth_handler.go # Llama a credentials_auth.go
+│               └── google_handler.go # Llama a google_auth.go
+│
+└── go.mod
+
+---------------------------------------------------------------------------------------------------------------
+Versión 2
+
+
+
+📁 auth-identity-service/            # <--- Raíz del proyecto
+│
+├── 📁 .github/                     # Integración y Despliegue Continuo (CI/CD)
+│   └── 📁 workflows/
+│       └── ci.yml                  # Ejecuta linters y pruebas automatizadas en cada Push
+│
+├── 📁 cmd/                         # PUNTOS DE ENTRADA (Main binaries independientes)
+│   ├── 📁 api/                     
+│   │   └── main.go                 # Inicializa config, levanta Postgres/Redis/Kafka y arranca la API HTTP
+│   └── 📁 worker/                  
+│       └── main.go                 # Inicializa el consumidor de Kafka para procesar tareas en segundo plano
+│
+├── 📁 internal/                    # CÓDIGO PRIVADO DEL SERVICIO (Encapsulado por Go)
+│   │
+│   ├── 📁 domain/                  # 1. EL NÚCLEO (Modelos y Puertos) - Cero dependencias externas
+│   │   ├── token.go                # struct TokenPair { AccessToken, RefreshToken }
+│   │   ├── user.go                 # struct User { ID, Email, PasswordHash, CreatedAt } e invariantes
+│   │   ├── errors.go               # Definición de errores puros de negocio (ErrUserNotFound, ErrInvalidCredentials)
+│   │   └── ports.go                # Interfaces/Enchufes (UserRepository, CacheRepository, IdentityProvider, EventPublisher)
+│   │
+│   ├── 📁 service/                 # 2. LA LÓGICA (Casos de Uso / Servicios de Aplicación)
+│   │   ├── credentials_auth.go     # Lógica empresarial de Login/Registro tradicional con contraseña
+│   │   └── google_auth.go          # Lógica empresarial de Login/Registro federado con Google OAuth2
+│   │
+│   └── 📁 adapter/                 # 3. LA INFRAESTRUCTURA (Mundo Exterior - Implementa los Puertos)
+│       ├── 📁 persistencia/        # Adaptadores de almacenamiento y estado
+│       │   ├── 📁 postgres/        
+│       │   │   └── user_repository.go    # Consultas SQL reales (Implementa UserRepository)
+│       │   └── 📁 redis/           
+│       │       └── cache_repository.go   # Manejo de sesiones y datos rápidos (Implementa CacheRepository)
+│       │
+│       ├── 📁 colas/               # Adaptadores de comunicación dirigida por eventos (Kafka)
+│       │   └── 📁 kafka/           
+│       │       ├── producer.go     # Publica eventos de la API a tópicos (Implementa EventPublisher)
+│       │       └── consumer.go     # Escucha y procesa mensajes en el Worker (ej. envío de emails OTP)
+│       │
+│       ├── 📁 identity/            # Adaptadores para APIs de Terceros
+│       │   └── google_client.go    # Cliente HTTP real que habla con la API de Google (Implementa IdentityProvider)
+│       │
+│       └── 📁 http/                # Adaptador de entrada Web (Protocolo HTTP)
+│           ├── 📁 handlers/        
+│           │   ├── auth_handler.go # Procesa peticiones tradicionales y llama a credentials_auth.go
+│           │   └── google_handler.go # Procesa peticiones OAuth2 y llama a google_auth.go
+│           │
+│           ├── 📁 middleware/      # Interceptores transversales de la capa web
+│           │   ├── auth_middleware.go    # Valida la firma de los JWTs antes de dar acceso a rutas protegidas
+│           │   ├── error_middleware.go   # Recupera pánicos no controlados y centraliza errores HTTP
+│           │   └── rate_limit.go         # Limita intentos de peticiones por IP usando Redis (Anti-Fuerza Bruta)
+│           │
+│           ├── 📁 dto/             # Data Transfer Objects (Moldes exclusivos para recibir/devolver JSON)
+│           │   ├── auth_dto.go     # structs como LoginRequest, RegisterRequest, TokenResponse
+│           │   └── response_dto.go # Molde estandarizado corporativo para todas las respuestas { "status", "data", "error" }
+│           │
+│           └── 📁 errors/          
+│               └── http_errors.go  # El TRADUCTOR global. Transforma errores de dominio a códigos HTTP (400, 401, 500)
+│
+├── 📁 pkg/                         # LIBRERÍAS REUTILIZABLES (Utilitarios técnicos sin lógica de negocio)
+│   ├── 📁 crypto/                  
+│   │   ├── argon2.go               # Funciones para aplicar hash de alta seguridad a contraseñas
+│   │   └── jwt.go                  # Funciones independientes para firmar, emitir y desencriptar JWTs
+│   └── 📁 logger/                  
+│       └── logger.go               # Configuración centralizada de logs estructurales con alto rendimiento (ej: Uber Zap)
+│
+├── 📁 scripts/                     # Scripts de automatización interna
+│   └── 📁 migrations/              # Archivos SQL ordenados cronológicamente para estructurar la base de datos
+│       ├── 000001_create_users_table.up.sql
+│       └── 000001_create_users_table.down.sql
+│
+├── .env.example                    # Plantilla con las variables obligatorias (DB_PORT, KAFKA_HOST, REDIS_URL, etc.)
+├── .gitignore                      # Archivos locales y credenciales privadas excluidos del control de versiones
+├── docker-compose.yml              # Levanta Postgres, Redis, Kafka y herramientas de monitoreo visual en un comando
+├── Dockerfile                      # Empaqueta la aplicación en una imagen de producción multi-stage ligera (~20MB)
+├── go.mod                          # Manifiesto central de módulos y dependencias externas de Go
+└── go.sum                          # Sumas de verificación criptográficas para asegurar las librerías de Go
+
+
+-------------------------------------------------------------------------------------------
+
+Versión 3
+
+📁 auth-identity-service/            # <--- Raíz del proyecto
+│
+├── 📁 .github/                     # Integración y Despliegue Continuo (CI/CD)
+│   └── 📁 workflows/
+│       └── ci.yml                  # Ejecuta linters y pruebas automatizadas en cada Push
+│
+├── 📁 cmd/                         # PUNTOS DE ENTRADA (Main binaries independientes)
+│   ├── 📁 api/                     
+│   │   └── main.go                 # Inicializa config, levanta Postgres/Redis/Kafka y arranca la API HTTP
+│   └── 📁 worker/                  
+│       └── main.go                 # Inicializa el consumidor de Kafka para procesar tareas en segundo plano
+│
+├── 📁 internal/                    # CÓDIGO PRIVADO DEL SERVICIO (Encapsulado por Go)
+│   │
+│   ├── 📁 domain/                  # 1. EL NÚCLEO (Estructurado por Módulos de Negocio) - Cero dependencias externas
+│   │   │
+│   │   ├── 📁 user/                # Módulo encargado del ciclo de vida y almacenamiento del usuario
+│   │   │   ├── user_model.go       # struct User { ID, Email, PasswordHash, CreatedAt } e invariantes
+│   │   │   ├── user_repository.go  # interfaz UserRepository (Puerto que implementará Postgres)
+│   │   │   └── user_errors.go      # ErrUserNotFound, ErrEmailAlreadyInUse
+│   │   │
+│   │   ├── 📁 auth/                # Módulo encargado de flujos de sesión, tokens y proveedores externos
+│   │   │   ├── token_model.go      # struct TokenPair { AccessToken, RefreshToken }
+│   │   │   ├── cache_repository.go # interfaz CacheRepository para sesiones y bloqueos (Puerto para Redis)
+│   │   │   ├── identity_port.go    # interfaz IdentityProvider para OAuth2 (Puerto para Google)
+│   │   │   └── auth_errors.go      # ErrInvalidCredentials, ErrAccountBlocked, ErrInvalidGoogleToken
+│   │   │
+│   │   └── 📁 shared/              # Conceptos transversales compartidos por todo el ecosistema del dominio
+│   │       ├── event_publisher.go  # interfaz EventPublisher para mensajería y eventos distribuidos (Puerto para Kafka)
+│   │       └── shared_errors.go    # ErrInvalidEmail, ErrPasswordTooShort (Validaciones genéricas)
+│   │
+│   ├── 📁 service/                 # 2. LA LÓGICA (Casos de Uso / Servicios de Aplicación)
+│   │   ├── credentials_auth.go     # Lógica empresarial de Login/Registro tradicional con contraseña
+│   │   └── google_auth.go          # Lógica empresarial de Login/Registro federado con Google OAuth2
+│   │
+│   └── 📁 adapter/                 # 3. LA INFRAESTRUCTURA (Mundo Exterior - Implementa los Puertos)
+│       ├── 📁 persistencia/        # Adaptadores de almacenamiento y estado
+│       │   ├── 📁 postgres/        
+│       │   │   └── user_repository.go    # Consultas SQL reales (Implementa user.UserRepository)
+│       │   └── 📁 redis/           
+│       │       └── cache_repository.go   # Manejo de sesiones y datos rápidos (Implementa auth.CacheRepository)
+│       │
+│       ├── 📁 colas/               # Adaptadores de comunicación dirigida por eventos (Kafka)
+│       │   └── 📁 kafka/           
+│       │       ├── producer.go     # Publica eventos de la API a tópicos (Implementa shared.EventPublisher)
+│       │       └── consumer.go     # Escucha y procesa mensajes en el Worker (ej. envío de emails OTP)
+│       │
+│       ├── 📁 identity/            # Adaptadores para APIs de Terceros
+│       │   └── google_client.go    # Cliente HTTP real que habla con la API de Google (Implementa auth.IdentityProvider)
+│       │
+│       └── 📁 http/                # Adaptador de entrada Web (Protocolo HTTP)
+│           ├── 📁 handlers/        
+│           │   ├── auth_handler.go # Procesa peticiones tradicionales y llama a credentials_auth.go
+│           │   └── google_handler.go # Procesa peticiones OAuth2 y llama a google_auth.go
+│           │
+│           ├── 📁 middleware/      # Interceptores transversales de la capa web
+│           │   ├── auth_middleware.go    # Valida la firma de los JWTs antes de dar acceso a rutas protegidas
+│           │   ├── error_middleware.go   # Recupera pánicos no controlados y centraliza errores HTTP
+│           │   └── rate_limit.go         # Limita intentos de peticiones por IP usando Redis (Anti-Fuerza Bruta)
+│           │
+│           ├── 📁 dto/             # Data Transfer Objects (Moldes exclusivos para recibir/devolver JSON)
+│           │   ├── auth_dto.go     # structs como LoginRequest, RegisterRequest, TokenResponse
+│           │   └── response_dto.go # Molde estandarizado corporativo para todas las respuestas { "status", "data", "error" }
+│           │
+│           └── 📁 errors/          
+│               └── http_errors.go  # El TRADUCTOR global. Transforma errores de dominio a códigos HTTP (400, 401, 500)
+│
+├── 📁 pkg/                         # LIBRERÍAS REUTILIZABLES (Utilitarios técnicos sin lógica de negocio)
+│   ├── 📁 crypto/                  
+│   │   ├── argon2.go               # Funciones para aplicar hash de alta seguridad a contraseñas
+│   │   └── jwt.go                  # Funciones independientes para firmar, emitir y desencriptar JWTs
+│   └── 📁 logger/                  
+│       └── logger.go               # Configuración centralizada de logs estructurales con alto rendimiento (ej: Uber Zap)
+│
+├── 📁 scripts/                     # Scripts de automatización interna
+│   └── 📁 migrations/              # Archivos SQL ordenados cronológicamente para estructurar la base de datos
+│       ├── 000001_create_users_table.up.sql
+│       └── 000001_create_users_table.down.sql
+│
+├── .env.example                    # Plantilla con las variables obligatorias (DB_PORT, KAFKA_HOST, REDIS_URL, etc.)
+├── .gitignore                      # Archivos locales y credenciales privadas excluidos del control de versiones
+├── docker-compose.yml              # Levanta Postgres, Redis, Kafka y herramientas de monitoreo visual en un comando
+├── Dockerfile                      # Empaqueta la aplicación en una imagen de producción multi-stage ligera (~20MB)
+├── go.mod                          # Manifiesto central de módulos y dependencias externas de Go
+└── go.sum                          # Sumas de verificación criptográficas para asegurar las librerías de Go
+
+---------------------------------------------------------------------------
+
+Versión 4
+
+📁 auth-identity-service/            # <--- Raíz del proyecto
+│
+├── 📁 .github/                     # Integración y Despliegue Continuo (CI/CD)
+│   └── 📁 workflows/
+│       └── ci.yml                  # Ejecuta linters y pruebas automatizadas en cada Push
+│
+├── 📁 cmd/                         # PUNTOS DE ENTRADA (Main binaries independientes)
+│   ├── 📁 api/                     
+│   │   └── main.go                 # Lee config, conecta adaptadores (incluidos los de seguridad) y arranca la API HTTP
+│   └── 📁 worker/                  
+│       └── main.go                 # Inicializa el consumidor de Kafka para procesar tareas en segundo plano
+│
+├── 📁 internal/                    # CÓDIGO PRIVADO DEL SERVICIO (Encapsulado y protegido por Go)
+│   │
+│   ├── 📁 domain/                  # 1. EL NÚCLEO (Estructurado por Módulos de Negocio) - Cero dependencias externas
+│   │   │
+│   │   ├── 📁 user/                # Módulo encargado del ciclo de vida y almacenamiento del usuario
+│   │   │   ├── password_hasher.go  # 🚨 ADAPTACIÓN SENIOR: Interfaz PasswordHasher (Evita usar herramientas directo en el core)
+│   │   │   ├── user_errors.go      # ErrUserNotFound, ErrEmailAlreadyInUse
+│   │   │   ├── user_model.go       # struct User { ID, Email, PasswordHash, CreatedAt } e invariantes
+│   │   │   └── user_repository.go  # interfaz UserRepository (Puerto que implementará Postgres)
+│   │   │
+│   │   ├── 📁 auth/                # Módulo encargado de flujos de sesión, tokens y proveedores externos
+│   │   │   ├── auth_errors.go      # ErrInvalidCredentials, ErrAccountBlocked, ErrInvalidGoogleToken
+│   │   │   ├── cache_repository.go # interfaz CacheRepository para sesiones y bloqueos (Puerto para Redis)
+│   │   │   ├── identity_port.go    # interfaz IdentityProvider para OAuth2 (Puerto para Google)
+│   │   │   ├── token_model.go      # struct TokenPair { AccessToken, RefreshToken }
+│   │   │   └── token_provider.go   # 🚨 ADAPTACIÓN SENIOR: Interfaz TokenProvider (Abstrae la generación de JWT/PASETO)
+│   │   │
+│   │   └── 📁 shared/              # Conceptos transversales compartidos por todo el ecosistema del dominio
+│   │       ├── event_publisher.go  # interfaz EventPublisher para mensajería y eventos distribuidos (Puerto para Kafka)
+│   │       └── shared_errors.go    # ErrInvalidEmail, ErrPasswordTooShort (Validaciones genéricas)
+│   │
+│   ├── 📁 service/                 # 2. LA LÓGICA (Casos de Uso / Servicios de Aplicación - 100% Puros)
+│   │   ├── credentials_auth.go     # Inyecta PasswordHasher y TokenProvider. Orquesta Login/Registro con contraseña.
+│   │   └── google_auth.go          # Inyecta TokenProvider. Orquesta Login/Registro federado con Google OAuth2.
+│   │
+│   └── 📁 adapter/                 # 3. LA INFRAESTRUCTURA (Mundo Exterior - Implementa los Puertos)
+│       │
+│       ├── 📁 security/            # 🚨 NUEVA CAPA DE SEGURIDAD: Implementaciones criptográficas reales
+│       │   ├── argon2_hasher.go    # Implementa user.PasswordHasher (Código técnico de Argon2 encapsulado)
+│       │   └── jwt_provider.go     # Implementa auth.TokenProvider (Código técnico de firma y lectura de JWT)
+│       │
+│       ├── 📁 persistencia/        # Adaptadores de almacenamiento y estado de datos
+│       │   ├── 📁 postgres/        
+│       │   │   └── user_repository.go    # Consultas SQL reales (Implementa user.UserRepository)
+│       │   └── 📁 redis/           
+│       │       └── cache_repository.go   # Manejo de sesiones y listas negras en memoria (Implementa auth.CacheRepository)
+│       │
+│       ├── 📁 colas/               # Adaptadores de comunicación dirigida por eventos (Kafka)
+│       │   └── 📁 kafka/           
+│       │       ├── producer.go     # Publica eventos de la API a tópicos (Implementa shared.EventPublisher)
+│       │       └── consumer.go     # Escucha y procesa mensajes en el Worker (ej. envío de emails OTP)
+│       │
+│       ├── 📁 identity/            # Adaptadores para conexiones con APIs de Proveedores Terceros
+│       │   └── google_client.go    # Cliente HTTP real que habla con la API de Google (Implementa auth.IdentityProvider)
+│       │
+│       └── 📁 http/                # Adaptador de entrada Web (Protocolo HTTP)
+│           ├── 📁 handlers/        
+│           │   ├── auth_handler.go # Procesa JSONs de entrada web y llama a credentials_auth.go
+│           │   └── google_handler.go # Procesa redirecciones OAuth2 y llama a google_auth.go
+│           │
+│           ├── 📁 middleware/      # Interceptores transversales de solicitudes web
+│           │   ├── auth_middleware.go    # 🚨 BLINDADO: Usa auth.TokenProvider y auth.CacheRepository para validar y revocar
+│           │   ├── error_middleware.go   # Intercepta pánicos y centraliza las estructuras de fallos HTTP
+│           │   └── rate_limit.go         # Limita intentos de login por IP usando Redis para mitigar Fuerza Bruta
+│           │
+│           ├── 📁 dto/             # Data Transfer Objects (Exclusivos para estructurar JSONs de entrada/salida)
+│           │   ├── auth_dto.go     # structs como LoginRequest, RegisterRequest, TokenResponse
+│           │   └── response_dto.go # Molde corporativo estandarizado para respuestas { "status", "data", "error" }
+│           │
+│           └── 📁 errors/          
+│               └── http_errors.go  # El TRADUCTOR global. Asigna códigos HTTP (400, 401, 500) según el error de dominio.
+│
+├── 📁 pkg/                         # LIBRERÍAS REUTILIZABLES (Estrictamente utilitarios técnicos genéricos)
+│   └── 📁 logger/                  
+│       └── logger.go               # Inicialización y formato de logs estructurados JSON de alta velocidad (Uber Zap)
+│
+├── 📁 scripts/                     # Scripts de automatización y mantenimiento de base de datos
+│   └── 📁 migrations/              # Archivos SQL planos ejecutados por pipelines o herramientas externas antes del arranque
+│       ├── 000001_create_users_table.up.sql
+│       └── 000001_create_users_table.down.sql
+│
+├── .env.example                    # Plantilla base con los puertos y credenciales requeridas por la infraestructura
+├── .gitignore                      # Excluye del repositorio el archivo .env real y ejecutables compilados locales
+├── docker-compose.yml              # Orquesta contenedores locales de Postgres, Redis, Kafka y dashboards de desarrollo
+├── Dockerfile                      # Compilación multi-stage automatizada para generar una imagen productiva limpia (~20MB)
+├── go.mod                          # Manifiesto de módulos de Go y control estricto de librerías de terceros
+└── go.sum                          # Firmas criptográficas que garantizan la integridad de las dependencias descargadas

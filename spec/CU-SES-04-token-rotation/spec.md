@@ -1,0 +1,65 @@
+# Spec: CU-SES-04 - Renovación Controlada y Detección de Reúso (Token Rotation)
+
+## 1. Contexto y Propósito
+Rotar el Refresh en cada uso (mismo `sid/family`, `counter+1`, Access nuevo 15min) y convertir cualquier reuso en contención GLOBAL (corte total + email crítico P1). Cierra el Módulo 4: sin rotación el Refresh robado viviría 30d; con gracia 10s se evitan falsos positivos por retry/race sin cegar al detector.
+
+Decisiones (2026-10-05, todas Recommended):
+- Q1 `POST /refresh` híbrido (Refresh es la auth, sin Bearer), Q2 Rota atómica mismo sid/family + sliding acotado, Q3 Reuso → GLOBAL (valid_after + revoke-all + email crítico), Q4 Gracia 10s mismo par sin alarma (mismo device; resto → global), Q5 Expirada/revoked → `401` con hint re-login, Q6 Rota cookie+body + denylist jti viejo, Q7 Métricas + P1 + puertos.
+
+## 2. Actores y Precondiciones
+* **Actores:** Cliente (con Refresh vigente), Microservicio Auth, Worker (emails críticos).
+* **Precondiciones:**
+  * Refresh `32B` presentado vía cookie (`refresh_token`) o body `{refresh_token}` (nativo); formato 43ch b64url (malforma → `400`, sin lookup).
+  * Rate `refresh:ip 30/min` + `refresh:fam 10/min` (por `family` si se identifica por hash, sino por IP) libre.
+
+## 3. Flujo Principal (Happy Path — rotate)
+1. Cliente envía `POST /api/v1/auth/refresh` (cookie o body) + `X-Request-ID` (sin Bearer; si trae Bearer se ignora — el Refresh manda).
+2. El back valida forma (43ch b64url → `SHA-256 hash`); malforma → `400 VALIDATION_FAILED` (sin DB). Rate-check (excede → `429`).
+3. Lookup `refresh_hashes WHERE hash=$h` → `family` (miss → `401 INVALID_REFRESH` opaco (nunca existió o PG purgó expirados; sin alarma global — no hay family que acusar) + audit).
+4. Carga `refresh_families WHERE family` (`FOR UPDATE` en Tx): si `revoked` (logout individual/global/selectivo/CRED) → `401 FAMILY_REVOKED` (front → login; sin alarma robo — ya muerta) + audit; si `now>absolute_exp` → `401 SESSION_EXPIRED` (front → login) + marca family `revoked=expired` best-effort; si `now>hashes.expires_at` (sliding del presented) → `401 SESSION_EXPIRED` igual.
+5. Si `hash == family.current_hash` (vigente): Tx atómica `Rotate`: `UPDATE families SET current_hash=$newH, parent_hash=$oldH, counter=c+1` (`WHERE current_hash=$oldH` CAS — si 0 filas por carrera → re-lee: si ahora `current` es el que acabamos de emitir en gracia → camino gracia; si es otro → `409` interno → trata como reuso? No: CAS fallido por rotación concurrente legítima → reintenta 1 vez como gracia; documentado en plan) + `INSERT refresh_hashes(newH, family, c+1, exp=min(now+30d, absolute))` + `UPDATE sessions SET jti_actual=$newJti, last_seen=now WHERE sid=family.sid` + `INSERT revoked_jtis(oldJti)` + `INSERT outbox(session.rotated)` + Redis (`SET fam current`, `DEL` viejo inverso, `SET jti:old`, `SET sess` refresh). Genera `newPlain 32B` + `newAccess` (mismo `sid/family`, nuevo `jti`, `auth_time` original preservado — no se rejuvenece `auth_time` en rotate (Step-Up envejecería artificialmente si lo tocáramos; documentado), `roles` re-snapshot? No: mantiene `roles_ver` de emisión (si cambiaron roles, CU-SEC-06 fuerza re-login, no rotate silencioso — documentado)).
+6. Entrega híbrida igual Issue (Access body + Refresh cookie rotada `Max-Age=restante real`, `sid` igual) + `200 {access_token, expires_in:900, sid}`. El viejo Refresh queda muerto (su hash pasa a `consumed/current_anterior`).
+7. Gracia (camino alterno feliz): si `hash != current` pero `hash == parent_hash` (inmediato anterior) Y `now - rotated_at ≤10s` Y `device_hash` igual → NO es robo (retry/race): retorna EL MISMO par ya emitido (recuperado de `fam:last_issued` Redis EX 10s o re-firmado determinista? No re-firmar distinto: se guarda `last_access_jwt` 10s? Guardar JWT 10s en Redis es aceptable (corto). Decisión: guarda `fam:<family>:last {access_jwt, refresh_plain_hash?}` — NO guarda Refresh plano (solo su hash + el Access JWT ya emitido, que es público al poseedor). Pero el cliente en retry necesita el Refresh PLANO nuevo, que ya no tenemos (solo hash). Solución vinculante: en gracia NO se re-emite nada nuevo; se retorna `200` con el Access JWT guardado + instrucción de leer el Refresh de su propia cookie/body del primer `200` (el retry ya lo tiene si es retry real; si es race paralelo, el perdedor recibe `409 CONCURRENT_ROTATION` + debe reintentar con el nuevo Refresh que el ganador ya tiene? No lo tiene el perdedor. Mejor: el perdedor hace 1 reintento automático con... no tiene el nuevo. Hmm. Decisión final simple y segura: gracia SOLO para retry idempotente mismo `X-Request-ID` (mismo RequestID → mismo par, guardamos mapeo `idempotency:refresh:<reqID> → {access, refresh_plain}` EX 60s para replay exacto). Race paralelo con distintos RequestID y mismo Refresh viejo → el perdedor ve CAS fallido → `409 CONCURRENT_ROTATION` + front reintenta con... sigue sin el nuevo. Para cerrar el loop: el perdedor recibe `401 REUSE_SUSPECT`? Eso es falso positivo. Alternativa realista usada en producción: permitir que el parent sirva UNA vez más dentro de 10s emitiendo un SEGUNDO hijo (fork controlado, misma family, counter+1b)? Eso bifurca chain (dos currents). No.
+  Resolución adoptada (documentada, simple, sin falsos globales): gracia = idempotencia por `X-Request-ID` (mismo RequestID replay → mismo par guardado 60s, sin alarma) + race con distinto RequestID → el segundo obtiene `409 CONCURRENT_ROTATION` (front reintenta `POST /refresh` SIN body (cookie ya rotada por el ganador? No: la cookie del perdedor sigue vieja). El front, ante `409`, reintenta UNA vez con el Refresh que tenga en memoria actualizada por el ganador? En race paralelo ambos tienen el viejo. El ganador rotó la cookie (su response). El perdedor no la tiene. Para salir: el perdedor usa el Access nuevo? No lo tiene.
+  Salida pragmática: ante `409`, el front hace `GET /sessions` (si su Access aún vive ≤15min) para seguir operando y deja el Refresh al próximo ciclo natural (el ganador ya actualizó la cookie del store compartido si es misma pestaña? En race misma pestaña comparten jar → el segundo request del jar ya lleva... no, ambos salieron con la vieja). En la práctica el `409` solo ocurre en doble-submit manual; el front ante `409` reintenta `POST /refresh` y esta vez el jar (si el ganador ya volvió) lleva el NUEVO Refresh → éxito. Si el ganador aún no volvió, el reintento con viejo dentro de 10s → `409` de nuevo (con contador `concurrent_retries`, a los 3 en 10s → trata como reuso? No: como `401 REUSE_SUSPECT` + alarma? Peligroso. Límite: tras 3×`409` en 10s, el 4º con mismo viejo → alarma global (probable robo real con replay rápido). Documentado como política anti-flapping. Ver plan para máquina de estados exacta.
+
+## 4. Flujos Alternativos y Excepciones
+* **4.1. Validación:** sin Refresh/malforma → `400 VALIDATION_FAILED` (sin lookup, sin alarma). Body >4KB → `413`.
+* **4.2. Reuso = robo (núcleo):** `hash` hallado en `refresh_hashes` de la family pero `≠ current` y fuera de gracia (o distinto device, o `-X-Request-ID` distinto tras ventana, o `parent` antiguo `counter<c-1`, o cualquier hash consumido no-parent): Tx GLOBAL (reuso SES-02: `valid_after=now(user)` + `families revoked TODAS` + `sessions DELETE TODAS` + outbox `reuse_detected` + `revoked_all`) + Redis sweep + email CRÍTICO `Detectamos uso indebido: cerramos todo` (con device/hora de AMBOS usos — el legítimo y el reuse — + `cambia tu clave ahora`) + P1 (`reuse_detected_total` + pager) + responde `401 SESSION_COMPROMISED` (front → login + banner incidente; distinto código de `FAMILY_REVOKED` para que el front distinga robo de logout normal en telemetría, mismo tiempo de respuesta ±jitter para no filtrar a red pasiva? El atacante del reuse ya sabe que lo detectaron por el corte; no hay oráculo que proteger aquí — el 401 es explícito a propósito).
+* **4.3. Expirada/revoked:** `absolute/sliding` pasado → `401 SESSION_EXPIRED` (front login, sin alarma); `family.revoked` (logout) → `401 FAMILY_REVOKED` (sin alarma robo); `hash` miss total → `401 INVALID_REFRESH` (sin alarma global — sin family no hay a quién cortar; si el miss es masivo por IP → rate + `WARN` barrido).
+* **4.4. Rate:** `429 + Retry-After` (sin rotar, sin quemar). Sin locks cuenta (el Refresh es secreto de alta entropía; el brute-force 256-bit es inviable; el rate es anti-ruido, no anti-adivinanza).
+* **4.5. Concurrencia (`409`):** CAS perdido por rotación legítima paralela → `409 CONCURRENT_ROTATION {retry:true}` (solo este caso reintentable por el front UNA vez tras 200ms; si el reintento cae fuera de gracia con viejo → puede escalar a global por 4.2 — el front DEBE actualizar su jar con el ganador antes de reintentar: ante `409`, re-lee cookie (el ganador la rotó) y reintenta con la NUEVA; documentado en contracts como algoritmo cliente).
+
+## 5. Reglas de Negocio y Seguridad
+* **RN-01:** Single-use estricto (cada Refresh sirve 1 vez; el presentado muere en la Tx que emite el siguiente).
+* **RN-02:** Chain `parent_hash` + `counter` monótono + `current_hash` único (CAS `WHERE current_hash=old`). `sliding=min(now+30d, absolute_90d)`; `absolute` inamovible desde Issue.
+* **RN-03:** Mismo `sid` toda la vida de la family (SES-03 tracking estable); nuevo `jti` por rotate + denylist del viejo hasta su `exp` (≤15min).
+* **RN-04:** `auth_time` preservado (no rejuvenece; Step-Up expira aunque rote — correcto por diseño). `roles_ver` preservado (cambio roles fuerza re-login vía CU-SEC-06, no rotate).
+* **RN-05:** Gracia = idempotencia RequestID 60s (mismo par) + `409` race con algoritmo cliente (re-lee jar + 1 reintento) + escalado a global tras 3×`409`/10s con mismo viejo (anti-flapping ladrón).
+* **RN-06:** Reuso fuera de gracia → GLOBAL (no solo family) + email crítico + P1 (igual que SES-02 pero `reason:reuse_detected`).
+* **SEC-01:** Refresh 256-bit, hash-only DB, nunca en logs/URLs (cookie/body TLS + `Set-Cookie` flags), `parent/current` hashes comparados `ConstantTime` donde aplique (el lookup por índice ya filtra; defensa en profundidad).
+* **SEC-02:** `401` explícitos por causa (`EXPIRED/REVOKED/COMPROMISED/CONCURRENT`) — aquí SÍ se distingue (el poseedor del Refresh es parte interesada; el oráculo no aplica pues cada código solo lo ve quien tiene el secreto o nada).
+* **SEC-03:** Sin Bearer en refresh (el Access expirado no debe bloquear la renovación — ese es el punto del endpoint).
+
+## 6. Requerimientos de Observabilidad
+* **Métrica:** `rotation_total{result="ok|grace_idempotent|concurrent|reuse|expired|revoked|invalid|rate_limited|error"}` + `reuse_detected_total{severity="critical"}` (P1) + `rotation_duration_seconds` + `concurrent_409_total`.
+* **Trazabilidad:** Raíz `UseCase.RotateSession` (hijos: `ratelimit`, `db.refresh.lookup (FOR UPDATE)`, `reuse.check (chain/counter/device/ventana)`, `crypto.rand+sign`, `db.rotate (Tx CAS)`, `cache.rotate+denylist`, `outbox.insert`, `global_revoke` (si reuse)). Atributos `family, counter, grace?`, nunca planos.
+* **Auditoría:** `auth.audit.v1 {action:"session.rotate|reuse", family, counter, device_hash, result, trace_id}` + eventos `session.rotated.v1` (key `user_id`) / `session.reuse_detected.v1` (key `user_id`, P1) / `session.revoked_all{reason:reuse_detected}`. Sin Refresh plano (solo `hash_prefix(8)`).
+
+## 7. Criterios de Aceptación (Given-When-Then)
+* **Escenario 1: Rotate feliz + sliding**
+  * **Dado** family viva (`counter=3`, absolute +80d, sliding +20d), Refresh current R3.
+  * **Cuando** `POST /refresh` (cookie R3).
+  * **Entonces** `200` + Access nuevo (mismo `sid`, nuevo `jti`, `auth_time` preservado) + cookie R4 (`counter=4`, `exp=min(now+30d,absolute)`) + R3 muerto (reuso → 4.2) + `jti` viejo denylisteado + `rotation_total{ok}` +1. p95 <250ms (sin Argon2).
+* **Escenario 2: Reuso → global + P1**
+  * **Dado** R3 ya rotado a R4 (R3 muerto), atacante presenta R3 fuera de gracia (11s después, o distinto device, o distinto RequestID tras ventana).
+  * **Cuando** `POST /refresh` (R3).
+  * **Entonces** `401 SESSION_COMPROMISED` + GLOBAL (0 sesiones, `valid_after` bump, families revoked) + email crítico (con ambos devices/horas) + P1 + `reuse_detected_total` +1 + audit. Legítimo con R4 también muere (daño colateral aceptado) y re-loguea.
+* **Escenario 3: Gracia idempotente + race `409`**
+  * **Dado** R3 rotado a R4 hace 2s (mismo device).
+  * **Cuando** replay mismo `X-Request-ID` del rotate + race paralelo distinto RequestID mismo R3.
+  * **Entonces** replay → `200` mismo par (sin alarma, `grace_idempotent`); race → perdedor `409 CONCURRENT_ROTATION` (sin alarma); front re-lee jar (R4 del ganador) + reintenta → `200`. 4º `409` con mismo viejo/10s → escala a global (anti-flapping).
+* **Escenario 4: Expirada/revoked/rate + infra**
+  * **Dado** absolute pasado / family revoked por logout / flood 40/min/IP / PG down / Redis down.
+  * **Cuando** refresh.
+  * **Entonces** absolute → `401 SESSION_EXPIRED` (re-login, sin alarma); revoked → `401 FAMILY_REVOKED`; flood → 31º `429`; PG-down → `500` (sin rotar ni quemar); Redis-down → `200` vía PG + `WARN` + rehidrata (denylist `jti` vía PG fallback).
