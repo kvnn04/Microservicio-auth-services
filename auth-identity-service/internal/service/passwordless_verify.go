@@ -188,7 +188,8 @@ func (s *PasswordlessVerifyService) Execute(ctx context.Context, in PlessVerifyI
 	pair, serr := s.Sessions.Issue(ctx, auth.SessionRequest{
 		UserID: consumed.UserID, Method: auth.MethodPasswordlessEmail,
 		AMR: []auth.AMR{auth.AMROTPEmail}, AuthTime: time.Now().UTC(),
-		Device: auth.Device{IPHash: consumeCtx.IPHash24, UAHash: consumeCtx.UAHash},
+		Device: auth.Device{IPHash: consumeCtx.IPHash24, UAHash: consumeCtx.UAHash,
+			Label: auth.DeviceLabel(in.UserAgent), IPMasked: auth.MaskIP(in.IP)},
 		Roles:  []string{"user"},
 	})
 	if serr != nil {

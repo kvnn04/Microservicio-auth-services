@@ -6,9 +6,9 @@ import (
 )
 
 var (
-	ErrInvalidMFA   = errors.New("invalid mfa code or challenge")
-	ErrNoStaged     = errors.New("no staged secret")
-	ErrStagedExpired = errors.New("staged secret expired")
+	ErrInvalidMFA     = errors.New("invalid mfa code or challenge")
+	ErrNoStaged       = errors.New("no staged secret")
+	ErrStagedExpired  = errors.New("staged secret expired")
 	ErrAlreadyEnabled = errors.New("mfa already enabled")
 	// ErrReplayUncheckable: reuso indetectable (Redis+DB caídos) → 500
 	// explícito en vez de 401 silencioso (único 500 con código distinto).
@@ -72,4 +72,3 @@ type MFAChallengeStore interface {
 	// Con true el servicio responde 500 REPLAY_UNCHECKABLE, no 401.
 	Uncheckable(ctx context.Context) bool
 }
-

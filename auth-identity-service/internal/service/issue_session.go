@@ -175,9 +175,26 @@ func (s *IssueService) tryOnce(ctx context.Context, req auth.SessionRequest, rol
 		return auth.IssuedPair{}, fmt.Errorf("sign: %w", auth.ErrSessionInfra)
 	}
 	deviceHash := issueSHA256(req.Device.IPHash + req.Device.UAHash)
+	// Labels CU-SES-03 (vista pública denormalizada; 'unknown' si el
+	// llamador no los calculó —filas viejas usan el DEFAULT PG—).
+	label, masked := req.Device.Label, req.Device.IPMasked
+	if label == "" {
+		label = "unknown"
+	}
+	if masked == "" {
+		masked = "unknown"
+	}
+	// Contexto de emisión CU-SES-04 (re-firmar preservando Step-Up/roles).
+	// roles ya viene defaulteado (["user"]) desde issue().
+	amrStr := make([]string, 0, len(req.AMR))
+	for _, a := range req.AMR {
+		amrStr = append(amrStr, string(a))
+	}
 	sess := auth.Session{
 		SID: sid, UserID: req.UserID, Family: family, JTI: jti,
 		DeviceHash: deviceHash, IPHash: req.Device.IPHash,
+		DeviceLabel: label, IPMasked: masked, Location: req.Device.Location,
+		AuthTime: req.AuthTime, AMR: amrStr, Roles: roles, RolesVer: req.RolesVer,
 		CreatedAt: now, LastSeen: now, ExpiresAt: now.Add(auth.RefreshAbsoluteTTL),
 	}
 	fam := auth.RefreshFamily{

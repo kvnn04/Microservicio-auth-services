@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
+	redisadapter "auth-identity-service/internal/adapter/persistencia/redis"
 	"auth-identity-service/internal/domain/auth"
 	"auth-identity-service/internal/domain/user"
-	redisadapter "auth-identity-service/internal/adapter/persistencia/redis"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"

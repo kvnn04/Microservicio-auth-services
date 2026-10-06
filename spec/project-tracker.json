@@ -13,10 +13,10 @@
     "ports": "internal/domain",
     "use_cases": "internal/service"
   },
-  "last_updated": "2026-10-06T06:00:00Z",
+  "last_updated": "2026-10-06T18:30:00Z",
   "metrics": {
-    "completed": 11,
-    "in_progress": 22,
+    "completed": 20,
+    "in_progress": 13,
     "pending": 0,
     "total_use_cases": 33
   },
@@ -188,7 +188,7 @@
       "id": "CU-AUTH-06",
       "name": "Autenticacion Reforzada Step-Up",
       "folder": "spec/CU-AUTH-06-step-up-auth",
-      "status": "READY_FOR_DEV",
+      "status": "COMPLETED",
       "priority": "HIGH",
       "dependencies": [
         "CU-AUTH-01",
@@ -196,14 +196,14 @@
       ],
       "tasks_summary": {
         "total": 15,
-        "completed": 0
+        "completed": 15
       }
     },
     {
       "id": "CU-CRED-01",
       "name": "Recuperacion de Contrasena",
       "folder": "spec/CU-CRED-01-recuperacion-password",
-      "status": "READY_FOR_DEV",
+      "status": "COMPLETED",
       "priority": "HIGH",
       "dependencies": [
         "CU-REG-01",
@@ -211,14 +211,14 @@
       ],
       "tasks_summary": {
         "total": 15,
-        "completed": 0
+        "completed": 15
       }
     },
     {
       "id": "CU-CRED-02",
       "name": "Cambio de Contrasena desde Sesion Activa",
       "folder": "spec/CU-CRED-02-cambio-password",
-      "status": "READY_FOR_DEV",
+      "status": "COMPLETED",
       "priority": "HIGH",
       "dependencies": [
         "CU-CRED-01",
@@ -226,14 +226,14 @@
       ],
       "tasks_summary": {
         "total": 15,
-        "completed": 0
+        "completed": 15
       }
     },
     {
       "id": "CU-CRED-03",
       "name": "Actualizacion de Correo Electronico",
       "folder": "spec/CU-CRED-03-actualizacion-email",
-      "status": "READY_FOR_DEV",
+      "status": "COMPLETED",
       "priority": "HIGH",
       "dependencies": [
         "CU-REG-02",
@@ -241,28 +241,28 @@
       ],
       "tasks_summary": {
         "total": 15,
-        "completed": 0
+        "completed": 15
       }
     },
     {
       "id": "CU-SES-01",
       "name": "Cierre de Sesion Individual",
       "folder": "spec/CU-SES-01-logout",
-      "status": "READY_FOR_DEV",
+      "status": "COMPLETED",
       "priority": "HIGH",
       "dependencies": [
         "CU-AUTH-04"
       ],
       "tasks_summary": {
         "total": 15,
-        "completed": 0
+        "completed": 15
       }
     },
     {
       "id": "CU-SES-02",
       "name": "Cierre de Sesion Global",
       "folder": "spec/CU-SES-02-logout-global",
-      "status": "READY_FOR_DEV",
+      "status": "COMPLETED",
       "priority": "HIGH",
       "dependencies": [
         "CU-AUTH-04",
@@ -270,14 +270,14 @@
       ],
       "tasks_summary": {
         "total": 15,
-        "completed": 0
+        "completed": 15
       }
     },
     {
       "id": "CU-SES-03",
       "name": "Listado y Terminacion Selectiva",
       "folder": "spec/CU-SES-03-gestion-sesiones",
-      "status": "READY_FOR_DEV",
+      "status": "COMPLETED",
       "priority": "HIGH",
       "dependencies": [
         "CU-AUTH-04",
@@ -285,18 +285,14 @@
       ],
       "tasks_summary": {
         "total": 15,
-        "completed": 0
-      },
-      "open_questions": [
-        "Q4-404-supuesto-a-confirmar",
-        "Q5-lastseen-supuesto-a-confirmar"
-      ]
+        "completed": 15
+      }
     },
     {
       "id": "CU-SES-04",
       "name": "Renovacion Controlada y Deteccion de Reuso",
       "folder": "spec/CU-SES-04-token-rotation",
-      "status": "READY_FOR_DEV",
+      "status": "COMPLETED",
       "priority": "HIGH",
       "dependencies": [
         "CU-AUTH-04",
@@ -304,7 +300,7 @@
       ],
       "tasks_summary": {
         "total": 15,
-        "completed": 0
+        "completed": 15
       }
     },
     {

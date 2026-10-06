@@ -10,10 +10,14 @@ import (
 
 // SessionTransport híbrido CU-AUTH-04 (sin rutas nuevas).
 // Web (defecto): body {access_token, token_type, expires_in, sid} +
-//   Set-Cookie refresh_token=<43ch>; HttpOnly; Secure; SameSite=Lax;
-//   Path=/api/v1/auth/refresh; Max-Age=2592000. Access NUNCA en cookie.
+//
+//	Set-Cookie refresh_token=<43ch>; HttpOnly; Secure; SameSite=Lax;
+//	Path=/api/v1/auth/refresh; Max-Age=2592000. Access NUNCA en cookie.
+//
 // Nativo (X-Client-Type: native): body {access_token, refresh_token, ...}
-//   sin Set-Cookie (keystore del cliente). Nunca en URL/query/logs.
+//
+//	sin Set-Cookie (keystore del cliente). Nunca en URL/query/logs.
+//
 // Siempre Cache-Control: no-store.
 func WritePair(w http.ResponseWriter, sess *service.SessionData, r *http.Request, secureCookies bool) {
 	w.Header().Set("Cache-Control", "no-store")
@@ -38,7 +42,7 @@ func WritePair(w http.ResponseWriter, sess *service.SessionData, r *http.Request
 	// En local sin HTTPS, Secure se relaja solo con ENV=dev (WARN en logs).
 	http.SetCookie(w, &http.Cookie{
 		Name: "refresh_token", Value: sess.RefreshTokenID,
-		Path: "/api/v1/auth/refresh",
+		Path:     "/api/v1/auth/refresh",
 		HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
 		MaxAge: 30 * 24 * 3600,
 	})

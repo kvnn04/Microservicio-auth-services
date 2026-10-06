@@ -94,8 +94,9 @@ func EmailKey(emailNormalized string) string {
 }
 
 // Bloqueo progresivo CU-REG-03 §4.4: 50x429/15min por IP → bloqueo 15min.
-//   announcer:ip:<ip>  contador de 429 EX 900
-//   blocked:ip:<ip>    "1" EX 900 (chequeado primero en el middleware)
+//
+//	announcer:ip:<ip>  contador de 429 EX 900
+//	blocked:ip:<ip>    "1" EX 900 (chequeado primero en el middleware)
 func announcerKey(ip string) string { return "announcer:ip:" + ip }
 func blockedKey(ip string) string   { return "blocked:ip:" + ip }
 

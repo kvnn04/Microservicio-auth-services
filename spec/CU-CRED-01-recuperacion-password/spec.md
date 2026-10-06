@@ -17,11 +17,11 @@ Decisiones (2026-10-05, todas Recommended):
 1. Usuario envía `POST /api/v1/auth/password/reset/start {email}` + `X-Request-ID` (≤2KB). Valida forma (normaliza igual registro; malforma → `400 VALIDATION_FAILED` rápido).
 2. Rate `pwdreset:start:ip 10/hora` + `pwdreset:start:email_hash 3/hora` → excede `429 + Retry-After` (sin revelar).
 3. Lookup `users by email_normalized` (guarda `eligible = ACTIVE && hash non-null`); dummy CSPRNG + `jitter 60-100ms` ambas ramas (sin Argon2 aquí — no hay que igualar tiempo de Verify, solo homogeneizar lookup).
-4. Si `eligible` + quotas (`reset:sent:<uid>>60s`? no, `<60s` bloquea; `reset:count:<uid:day><5`) → genera `token 32B CSPRNG b64url`, `hash=SHA-256`, `exp=now+15min`, `attempts 0/3`, `ctx{ip/24,ua}`, dual-write Redis (`pwdreset:t:<hash>`, `pwdreset:active:<uid>` supersede previo EX 900) + PG Tx (`password_reset_tokens` + outbox `password.reset_requested`) y encola SMTP (link `https://front/reset?token=` + `expira 15min` + `si no fuiste tú ignora + asegura`). Si federated-only ACTIVE (sin password) → encola aviso alternativo `Usa Google para entrar (no tienes contraseña)` (mismo `202`, throttle igual, sin link reset). Si no eligible/throttled → nada (solo audit).
+4. Si `eligible` + quotas (sin envío en los últimos 60s; menos de 5 envíos en 24h) → genera `token 32B CSPRNG b64url`, `hash=SHA-256`, `exp=now+15min`, `attempts 0/3`, `ctx{ip/24,ua}`, dual-write Redis (`pwdreset:t:<hash>`, `pwdreset:active:<uid>` supersede previo EX 900) + PG Tx (`password_reset_tokens` + outbox `password.reset_requested`) y encola SMTP (link `https://front/reset?token=` + `expira 15min` + `si no fuiste tú ignora + asegura`). Si federated-only ACTIVE (sin password) → encola aviso alternativo `Usa Google para entrar (no tienes contraseña)` (mismo `202`, throttle igual, sin link reset). Si no eligible/throttled → nada (solo audit).
 5. Retorna `202 {status:if_exists_sent}` idéntico siempre.
 6. Usuario abre `GET /password/reset?token=` (solo muestra form si el hash existe y vive — responde `200 {valid:true}` genérico? No: para no oracular, el GET valida formato pero NO revela validez sin consumir? Decisión vinculante: `GET` retorna `200` con form siempre si formato OK (aunque el token sea inválido; el error aparece al confirmar). Así el link nunca es oráculo por GET).
 7. Envía `POST /password/reset/confirm {token, new_password, new_password_confirm?}` (el front pide 2 campos iguales localmente; el back exige `new_password` + opcional `confirm` match si viene). El back valida forma token 32B + policy nueva clave (igual CU-REG-01: 12ch/clases/HIBP + `Verify(new, oldHash)==false` → si igual → `400 PASSWORD_REUSED` — único `400` que distingue reutilización, permitido porque solo lo ve quien posee el link + sabe la actual? No: el link prueba posesión del correo, así que revelar `reused` no oracula a terceros. Documentado).
-8. Lookup Redis→PG read-through, `ConstantTime` + `delay 40-80ms` en `400`; si vivo: Tx atómica PG: `UPDATE users SET password_hash=<Argon2id nuevo>, password_algo, updated_at, tokens_valid_after=now` + `UPDATE password_reset_tokens SET consumed` + supersede resto + `UPDATE refresh_families SET revoked + DELETE sessions user` (corte global) + `DELETE` Redis (`pwdreset:*`, `sess:<uid>:*`, `fam:*`) + outbox (`password.changed` + `session.revoked_all` + audit + email `Cambiaste tu clave` con IP/hora + `si no fuiste tú recupera de nuevo`). Retorna `200 {status:password_changed, message:"Inicia sesión con tu nueva clave."}` SIN auto-login ni tokens (debe `POST /login`).
+8. Lookup Redis→PG read-through, `ConstantTime` + `delay 40-80ms` en `400`; si vivo: Tx atómica PG: `UPDATE users SET password_hash=<Argon2id nuevo>, password_algo, updated_at, tokens_valid_after=now` + `UPDATE password_reset_tokens SET consumed` + supersede resto + `UPDATE refresh_families SET revoked + DELETE sessions user` (corte global) + borrado en Redis de las claves del token y de cada sesión/familia/jti + outbox (`password.changed` + `session.revoked_all` + audit + email `Cambiaste tu clave` con hora + `si no fuiste tú recupera de nuevo`). Retorna `200 {status:password_changed, message:"Inicia sesión con tu nueva clave."}` SIN auto-login ni tokens (debe `POST /login`).
 
 ## 4. Flujos Alternativos y Excepciones
 * **4.1. Validación:** email/token/new_password malforma (policy con `details[field]`), `confirm` mismatch, body >8KB → `400 VALIDATION_FAILED/PASSWORD_POLICY_*` (policy detalla campo sin revelar existencia; token malformo no consume intento).
@@ -42,7 +42,7 @@ Decisiones (2026-10-05, todas Recommended):
 * **SEC-04:** GET form nunca consume ni revela validez (solo formato); el `confirm` quema al primer uso válido (replay → `400`).
 
 ## 6. Requerimientos de Observabilidad
-* **Métrica:** `password_reset_total{op="start|confirm", result="sent|throttled|not_eligible|federated_hint|success|invalid|reused|policy_failed|rate_limited|error"}` + duración + `pwdreset_mismatch_total{risk=high}` + `pwdreset_redis_fallback_total`.
+* **Métrica:** `password_reset_total{op="start|confirm", result="sent|throttled|not_eligible|federated_hint|validation_failed|success|invalid|reused|policy_failed|replayed|error"}` + duración + `pwdreset_mismatch_total{risk=high}` + `pwdreset_hibp_fallback_total` + `pwdreset_redis_fallback_total{reason}`. Los `429` de buckets IP/token se cuentan en la capa HTTP (middleware), no en esta métrica; `burned` se pliega en `invalid` de cara al cliente (el quemado se distingue en `attempts` de la fila).
 * **Trazabilidad:** Raíces `UseCase.PasswordResetStart/Confirm` (hijos: `ratelimit`, `db.user.lookup`, `crypto.rand`, `cache+db.save|lookup|consume`, `crypto.policy+hibp`, `crypto.argon2.hash`, `db.password.update+revoke`, `ctx.compare`, `outbox.insert`). Atributos `risk`, nunca secreto/clave.
 * **Auditoría:** `auth.audit.v1 {action:"password.reset_start|confirm", email_hash, user_id?, result, risk?, trace_id}` + eventos `password.reset_requested|changed` + `session.revoked_all` + `security.context_mismatch?` (key `user_id`/`email_hash`). Sin token/clave.
 
@@ -63,3 +63,50 @@ Decisiones (2026-10-05, todas Recommended):
   * **Dado** emitido `IP-A`, confirmado `IP-B/16` distinto.
   * **Cuando** `confirm` válido + Redis-down / Kafka-down / PG-down.
   * **Entonces** `200` + email `context_mismatch` + audit `high`; Redis-down → `200` vía PG; Kafka-down → `200` + outbox pendiente; PG-down → `500` sin cambiar clave ni revocar.
+
+## 8. Notas de Implementación (desviaciones documentadas, 2026-10-06)
+
+> El comportamiento observable (contratos §1-§2) **no cambia**, salvo D-04
+> (payload de `password.changed` con `risk` + `request_id` aditivos,
+> compatible BACKWARD por tratarse de evento nuevo).
+
+* **D-01 — Policy/HIBP después de `FindAlive` (no antes).**
+  El plan ordenaba forma+policy→find; se invierte a forma→find→policy para
+  aplicar `EQUALS_EMAIL` con la parte local real y para no pagar HIBP ante
+  tokens inexistentes (paridad de tiempos: el 400 de policy solo lo ve
+  quien posee un link válido). `confirm`-mismatch se valida en forma
+  (sin tocar el token).
+* **D-02 — TOCTOU cerrado por `UPDATE` condicional, sin re-`Verify` en Tx.**
+  El plan pedía re-verificar `≠old` dentro de la Tx; en su lugar el
+  `UPDATE … WHERE consumed=FALSE AND superseded=FALSE …` atómico hace
+  imposible el doble consumo y la supersesión invalida links viejos ante
+  un cambio concurrente: la garantía es equivalente sin llevar el plano
+  a la Tx.
+* **D-03 — Emails de aviso sin IP cruda (solo hora).**
+  La capa de persistencia solo maneja hashes (`··_hash`), así que el aviso
+  `Cambiaste tu clave` y la alerta high-risk llevan hora UTC + consejo,
+  sin IP. Privacidad por diseño; el forense usa los hashes del outbox.
+* **D-04 — `password.changed` lleva `{user_id, via, risk}` (+`request_id`).**
+  Se añadió `request_id` (trazabilidad de soporte) y `risk` (detección);
+  el ejemplo del contrato mostraba `request_id` sin `risk`. Evento nuevo:
+  aditivo y BACKWARD.
+* **D-05 — TTL/quota como consts de dominio, no env (`PWDRESET_TTL`, `QUOTA`).**
+  Igual que D-01 de CU-AUTH-05: reglas fijas §5 (`PwdResetTTL=15min`,
+  `PwdResetCooldown=60s`, `PwdResetMaxDay=5`).
+* **D-06 — k6 `pwdreset_smoke.js` creado, no ejecutado en vivo** (igual que
+  `pless/stepup_smoke.js`): pendiente de ventana pre-productiva.
+* **D-07 — E2E Mailhog cubierto vía `email_queue` + integración PG+Redis
+  real, sin SMTP vivo** (igual que CU-AUTH-05): se asertan fila de email
+  con link, hint sin link, outbox `requested/changed/revoked_all/mismatch`
+  y 0 sesiones tras el corte.
+
+  **Evidencia de verificación:** `go vet ./...` limpio, `go build ./...` OK,
+  `go test ./... -count=1` verde en serie (`-p 1`) y en paralelo.
+
+  **Security Gate 🟢 PASSED (STRIDE):** solo-link 32B + solo hashes en DB;
+  202/400 opacos (sin 404/410; `REUSED`/`POLICY` solo tras probar posesión
+  del link); single-use + supersede + burn al 3º; corte global
+  (`valid_after` + families revocadas + sesiones borradas en PG y Redis)
+  sin auto-login; ctx-binding alerta-sin-bloqueo; quotas anti-spam;
+  sin token/clave/email en logs, métricas, spans ni eventos; GET form no
+  consume ni revela; `no-store` siempre; HIBP con fallback local.

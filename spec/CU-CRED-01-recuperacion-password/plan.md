@@ -20,18 +20,25 @@
   // internal/domain/auth/password_reset_ports.go
   type PasswordResetStore interface {
     EligibleForReset(ctx context.Context, normalizedEmail string) (userID string, eligible bool, federatedHint bool, err error) // ACTIVE+hash? eligible : federated-only ACTIVE? hint
+    QuotaCheck(ctx context.Context, key string) (allowed bool, retry time.Duration, err error) // 60s/5-24h por uid o anon:hash
     Issue(ctx context.Context, rec *PasswordResetRecord) error // dual-write + supersede + quotas (ErrThrottled→202 interno)
-    FindAlive(ctx context.Context, hash string) (*PasswordResetRecord, *user.User, error) // Redis→PG read-through
-    ConsumeTx(ctx context.Context, userID, hash, newHash string) (risk string, err error) // Tx: users(hash+valid_after)+token consumed+supersede+revoke sessions/families+outbox; ErrInvalid|Burned|Reused
+    IssueHint(ctx context.Context, userID, email string) error // aviso federated-only sin link
+    FindAlive(ctx context.Context, hash string) (*PasswordResetRecord, *user.User, error) // Redis→PG read-through (+usuario para policy/hash)
+    ConsumeTx(ctx context.Context, userID, hash, newHash, risk, curIPHash, curUAHash, requestID string) error // Tx: users(hash+valid_after)+token consumed+supersede+revoke sessions/families+outbox; ErrInvalid|Burned
+    IncrementAttempts(ctx context.Context, hash string) (burned bool, err error) // abuso; al 3º quema
   }
   ```
-  `newHash` lo calcula el servicio (Argon2id) antes de Tx; la Tx verifica `Verify(newPlain, oldHash)==false`? No: el servicio ya lo chequeó pre-Tx (con `oldHash` leído); la Tx re-chequea `password_hash` no cambió entre medio (`WHERE password_hash=$old` optimista o re-`Verify` en Tx — vinculante: re-`SELECT FOR UPDATE` + `Verify` en Tx para evitar TOCTOU).
+  `newHash` lo calcula el servicio (Argon2id) antes de Tx. Contra TOCTOU (cambio
+  concurrente entre lectura y escritura) la Tx usa `UPDATE … WHERE consumed=FALSE
+  AND superseded=FALSE …` atómico: un consumo o supersedeo intermedio deja
+  0 filas → `ErrInvalid`, y el re-chequeo `≠old` ya ocurrió pre-Tx en el
+  servicio (ver `spec.md` §8 D-02). No viaja el plano a la Tx.
 
 ### Capa de Aplicación (`internal/service/`)
 * **Servicios:** `internal/service/password_reset_start.go` + `password_reset_confirm.go`
-  * `Start(emailRaw, ip, ua, reqID)`: normaliza → rate `pwdreset:start` → `EligibleForReset` (guarda `eligible/hint`, no ramifica respuesta) → dummy+jitter → si `eligible && quotas` → `Issue` + outbox `requested` (+SMTP link); si `hint` → outbox `federated_hint` (email alternativo); sino solo audit → `Output{Sent:true}` genérico.
-  * `Confirm(token, newPassword, confirmOpt, ip, ua)`: valida token forma + policy (`Password.Validate` + HIBP + `confirm` match; policy-fail → `ErrPolicy` con details, SIN quemar token) → rate `pwdreset:confirm` → `FindAlive` (miss→`ErrInvalid`+delay) → `ConstantTime` → pre-chequeo `Verify(new, oldHash)` (si `true` → `ErrReused`, sin quemar? Sí: reused no quema, permite corregir — documentado) → `Hasher.Hash(new)` (Argon2id) → `ConsumeTx(newHash)` (re-verifica `≠old` en Tx + update + `tokens_valid_after=now` + revoke + outbox `changed+revoked_all+mismatch?` + email) → `Output{Changed:true}` (sin `Issue` sesión).
-* **Flujo Orquestado:** forma→rate→lookup→dummy→(issue|hint|noop)→202; forma+policy→rate→find→reused-check→hash→Tx consume+revoke→200. Idempotencia RequestID (start no re-emite 60s; confirm replay mismo RequestID → mismo `200` si ese RequestID consumió, sino `400`).
+  * `Start(emailRaw, ip, ua, reqID)`: normaliza → `EligibleForReset` (guarda `eligible/hint`, no ramifica respuesta) → dummy+jitter → si `eligible && quotas` → `Issue` + outbox `requested` (+SMTP link); si `hint` → outbox `federated_hint` (email alternativo); sino solo audit → `Output{Sent:true}` genérico. (El rate por IP/email vive en handler/middleware.)
+  * `Confirm(token, newPassword, confirmOpt, ip, ua)`: valida token forma + `confirm` match → `FindAlive` (miss→`ErrInvalid`+delay) → `ConstantTime` → policy (`Password.Validate` con parte local real + HIBP; policy-fail → `ErrPolicy` con details, SIN quemar token) → idempotencia → pre-chequeo `Verify(new, oldHash)` (si `true` → `ErrReused`, cuenta abuso sin quemar este intento) → `Hasher.Hash(new)` (Argon2id) → `ConsumeTx(newHash, risk, requestID)` (`UPDATE` condicional atómico + `tokens_valid_after=now` + revoke + outbox `changed+revoked_all+mismatch?` + email) → `Output{Changed:true}` (sin `Issue` sesión). El rate (`confirm:ip`, `:tok`) vive en handler/middleware; el orden forma→find→policy permite `EQUALS_EMAIL` (ver `spec.md` §8 D-01).
+* **Flujo Orquestado:** forma→lookup→dummy→(issue|hint|noop)→202; forma→find→policy→idem→reused-check→hash→Tx consume+revoke→200. Idempotencia RequestID 24h (start no re-emite; confirm replay mismo RequestID → mismo `200` si ese RequestID consumió, sino `400`).
 
 ### Capa de Adaptadores (`internal/adapter/`)
 * **Entrada (HTTP):**

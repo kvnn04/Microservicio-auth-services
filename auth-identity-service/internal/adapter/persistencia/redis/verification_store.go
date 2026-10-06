@@ -11,12 +11,13 @@ import (
 )
 
 // Claves efímeras CU-REG-02 (nunca PII: solo hashes SHA-256 hex y UUIDs).
-//   verify:t:<token_hash>          JSON {user_id, otp_hash, exp} EX 900 NX
-//   verify:o:<otp_hash>            <token_hash> EX 900 NX
-//   verify:active:<user_id>        <token_hash> EX 900 (sobrescribe)
-//   verify:att:<hash>              contador intentos EX 900
-//   verify:sent:<user_id>          unix envío EX 86400 (cooldown 60s)
-//   verify:resends:<uid>:<yyyy-mm-dd> contador cuota EX 172800
+//
+//	verify:t:<token_hash>          JSON {user_id, otp_hash, exp} EX 900 NX
+//	verify:o:<otp_hash>            <token_hash> EX 900 NX
+//	verify:active:<user_id>        <token_hash> EX 900 (sobrescribe)
+//	verify:att:<hash>              contador intentos EX 900
+//	verify:sent:<user_id>          unix envío EX 86400 (cooldown 60s)
+//	verify:resends:<uid>:<yyyy-mm-dd> contador cuota EX 172800
 func tKey(h string) string      { return "verify:t:" + h }
 func oKey(h string) string      { return "verify:o:" + h }
 func activeKey(u string) string { return "verify:active:" + u }

@@ -20,26 +20,29 @@
   ```go
   // internal/domain/user/email_change_ports.go
   type EmailChangeStore interface {
-    Request(ctx context.Context, requesterID, newNorm, newOrig string) (*EmailChangeRecord, bool taken, err error) // Step-Up ya validado fuera; taken si new ocupado por otro
-    FindAlive(ctx context.Context, hash string) (*EmailChangeRecord, error) // Redis→PG; ErrNotFound
-    ConfirmTx(ctx context.Context, hash string) (requesterID, newNorm string, err error) // Tx: re-UNIQUE + UPDATE users(verified, valid_after) + consumed + revoke_all + outbox×2; ErrTaken|Invalid
+    QuotaCheck(ctx context.Context, userID string) (allowed bool, retry time.Duration, err error) // 60s/5-24h
+    Taken(ctx context.Context, newNorm, requesterID string) (takenByOther bool, err error) // 409 solo otro dueño
+    Issue(ctx context.Context, rec *EmailChangeRecord) error // dual-write + supersede + outbox + doble-mail
+    FindAlive(ctx context.Context, hash string) (*EmailChangeRecord, error) // Redis→PG; ErrEmailChangeInvalid
+    ConfirmTx(ctx context.Context, hash string) (requesterID, newNormalized string, err error) // re-UNIQUE+burn, update, revoke_all, outbox×2
+    IncrementAttempts(ctx context.Context, hash string) (burned bool, err error) // al 3º quema
   }
   ```
-  Reuso `StepUpVerifier` (start), `EventPublisher/Outbox`.
+  Errores en `user`: `ErrEmailAlreadyInUse` (reuso → 409), `ErrEmailChangeInvalid/Burned` (→ 400). Reuso `StepUpChecker` del servicio (start), `EventPublisher/Outbox`.
 
 ### Capa de Aplicación (`internal/service/`)
 * **Servicios:** `internal/service/email_change_start.go` + `email_change_confirm.go`
-  * `Start(userID, authTime, stepUpTokenOpt, newRaw)`: `Guard(cred:change-email)` (fast-pass o token; falla → `ErrStepUp`) → normaliza (malforma/igual → `ErrValidation/Same`) → rate `3/hora` (`ErrRateLimited`) → `Request` (taken → `ErrTaken` + audit; throttled send-quota → `ErrThrottled` → handler `429`; ok → outbox `requested(old+new)` + `Output{masked}`).
+  * `Start(userID, authTime, stepUpTokenOpt, newRaw)`: `Guard(cred:change-email)` en el servicio vía `StepUpChecker` (fast-pass o token; falla → `ErrStepUp`, ver §8 D-01 — sin middleware para no quemar el `jti` dos veces) → normaliza (malforma/igual → `ErrValidation/Same`) → `Taken` (taken → `ErrTaken` + audit) → quotas (throttled → `ThrottledError` → handler `429`) → `Issue` + outbox `requested(old+new)` + doble-mail → `Output{masked}`.
   * `Confirm(token, bearerUserOpt)`: forma → rate confirm → `FindAlive` (miss→`ErrInvalid`+delay) → valida bearer ausente o igual-requester (distinto → `ErrInvalid` opaco) → `ConfirmTx` (re-UNIQUE new, race → `ErrTaken` + quema; ok → update + `valid_after` + revoke_all + outbox `changed+revoked_all+2 mails`) → `Output{masked}` (sin `Issue`).
 * **Flujo Orquestado:** Step-Up→norm→rate→unicidad→quotas→issue+doble-mail→202/409; forma→rate→find→bearer-check→Tx update+revoke→200. Idempotencia RequestID (start 60s, confirm replay mismo RequestID → mismo `200`).
 
 ### Capa de Adaptadores (`internal/adapter/`)
 * **Entrada (HTTP):**
-  * Handlers `handlers/email_change_start.go` (`POST /email/change/start {new_email}` auth+Step-Up → `202/400/401/409/429`) + `email_change_confirm.go` (`POST /email/change/confirm {token}` ±Bearer → `200/400/409` + `GET /email/change?token=` form no-consume).
-  * DTO `dto/email_change_dto.go`; middleware reuso `require_step_up(cred:change-email)` en start + rate (`emailchange:user 3/h, :ip 20/h, confirm:ip 20/min`) + `no-store`.
-  * Rutas `cmd/api/main.go`: `POST /api/v1/auth/email/change/start|/confirm`, `GET /email/change`.
+  * Handlers `handlers/email_change_start.go` (`POST /email/change/start {new_email}` auth → `202/400/401/409/429`) + `email_change_confirm.go` (`POST /email/change/confirm {token}` ±Bearer verificado → `200/400/409` + `GET /email/change?token=` form no-consume).
+  * DTO `dto/email_change_dto.go`; Step-Up verificado en el servicio (sin middleware `RequireStepUp` en la ruta, ver §8 D-01) + rate (`emailchange:user 3/h` en handler, `:ip 20/h|20/min` en `main.go`) + `no-store`.
+  * Rutas `cmd/api/main.go`: `POST /api/v1/auth/email/change/start|/confirm`, `GET /email/change`. Start con `auth` (+Step-Up en servicio); confirm anónimo (+Bearer opcional verificado). TTL/rate/quota son consts de dominio, sin env nuevo.
 * **Salida (Persistencia):**
-  * Postgres: `persistencia/postgres/email_change_store.go` (`email_change_tokens(token_hash PK, requester FK, new_normalized CITEXT, new_original, expires_at, attempts, consumed, superseded, created_at)`, `Request` (SELECT taken + supersede + INSERT + outbox), `ConfirmTx` (`SELECT requester FOR UPDATE` + re-`SELECT new` taken? → `ErrTaken`+burn + `UPDATE users SET email_*, verified, valid_after` + `UPDATE token consumed` + `UPDATE families revoked + DELETE sessions ALL` + outbox×2 en una Tx)).
+  * Postgres: `persistencia/postgres/email_change_store.go` (`email_change_tokens(token_hash PK, requester FK, new_normalized CITEXT, new_original, expires_at, attempts, consumed, superseded, created_at)`, `Taken` (solo lectura) + `Issue` (supersede + INSERT + outbox + doble-mail en Tx), `ConfirmTx` (`SELECT requester FOR UPDATE` + re-UNIQUE taken? → `ErrTaken`+burn + `UPDATE users SET email_*, verified, valid_after` + `UPDATE token consumed` + `UPDATE families revoked + DELETE sessions ALL` + outbox×2 en una Tx)).
   * Redis: `persistencia/redis/email_change_store.go` (`emailchange:t/active/sent/count` EX 900/3600/86400, Lua DEL, quotas; down → PG + fallback).
 * **Salida (Mensajería):** reuso `kafka` (`email.change_requested|changed` → `auth.email.v1`, `session.revoked_all{reason:email_change}`, + audit); worker SMTP doble (nuevo link-15min + viejo aviso-mask sin token, + `email_changed` al nuevo tras confirmar).
 * **Salida (Seguridad):** reuso `token_issuer` (32B), `Email.Normalize`, `StepUpVerifier`, `MaskEmail`.

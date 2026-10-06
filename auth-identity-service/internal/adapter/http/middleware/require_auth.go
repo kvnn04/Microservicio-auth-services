@@ -15,6 +15,7 @@ type authCtxKey string
 const (
 	authUserKey      authCtxKey = "auth_user_id"
 	authTimeKey      authCtxKey = "auth_time"
+	authSIDKey       authCtxKey = "auth_sid"
 	maxStepUpAgeKey  authCtxKey = "step_up_max_age"
 )
 
@@ -36,9 +37,10 @@ func RequireAuth(issuer interface {
 				unauthorized(w)
 				return
 			}
-			ctx := context.WithValue(r.Context(), authUserKey, sess.UserID)
-			ctx = context.WithValue(ctx, authTimeKey, sess.AuthTime)
-			next.ServeHTTP(w, r.WithContext(ctx))
+		ctx := context.WithValue(r.Context(), authUserKey, sess.UserID)
+		ctx = context.WithValue(ctx, authTimeKey, sess.AuthTime)
+		ctx = context.WithValue(ctx, authSIDKey, sess.SID)
+		next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
@@ -95,4 +97,11 @@ func AuthUserFromContext(ctx context.Context) (userID string, authTime time.Time
 		return "", time.Time{}, false
 	}
 	return uid, at, true
+}
+
+// AuthSIDFromContext recupera el sid de la sesión actual (""
+// con tokens legacy sin sid: el corte entonces revoca todo, fail-closed).
+func AuthSIDFromContext(ctx context.Context) string {
+	sid, _ := ctx.Value(authSIDKey).(string)
+	return sid
 }

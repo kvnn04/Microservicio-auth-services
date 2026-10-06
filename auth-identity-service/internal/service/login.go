@@ -255,7 +255,8 @@ func (s *LoginService) Execute(ctx context.Context, in LoginInput) (*LoginOutput
 	atPair, serr := s.Sessions.Issue(ctx, auth.SessionRequest{
 		UserID: foundUser.ID, Method: auth.MethodPassword,
 		AMR: []auth.AMR{auth.AMRPassword}, AuthTime: time.Now().UTC(),
-		Device: auth.Device{IPHash: ipHash, UAHash: uaHash},
+		Device: auth.Device{IPHash: ipHash, UAHash: uaHash,
+			Label: auth.DeviceLabel(in.UserAgent), IPMasked: auth.MaskIP(in.IP)},
 		Roles: []string{"user"},
 	})
 	if serr != nil {

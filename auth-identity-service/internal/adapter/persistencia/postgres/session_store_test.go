@@ -6,6 +6,7 @@ package postgres
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,6 +55,16 @@ func ensureSessionUser(ctx context.Context, pool *pgxpool.Pool, uid, email strin
 		ON CONFLICT (email_normalized) DO NOTHING`, uid, email)
 }
 
+// isFKViolation detecta carrera con wipes E2E (usuario borrado entre
+// ensure y Create) para reintentar una vez en tests de integración.
+func isFKViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "23503") || strings.Contains(msg, "violates foreign key")
+}
+
 func TestSessionStore_CreateYLRU(t *testing.T) {
 	pool := sessionTestPool(t)
 	defer pool.Close()
@@ -93,6 +104,11 @@ func TestSessionStore_CreateYLRU(t *testing.T) {
 		evt := user.OutboxPayload{EventID: uuid.NewString(), EventType: "session.issued",
 			AggregateID: uid, Topic: "auth.session.issued.v1", PayloadJSON: []byte(`{}`)}
 		evicted, err := store.Create(ctx, sess, famVO, h, evt, nil)
+		if err != nil && isFKViolation(err) {
+			// Wipe E2E entre ensure y Create: re-asegura y reintenta una vez.
+			ensureSessionUser(ctx, pool, uid, email)
+			evicted, err = store.Create(ctx, sess, famVO, h, evt, nil)
+		}
 		if err != nil {
 			t.Fatalf("create %d: %v", i, err)
 		}

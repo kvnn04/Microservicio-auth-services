@@ -7,7 +7,7 @@
   * `POST /api/v1/auth/password/reset/confirm {token, new_password[, new_password_confirm]}` → `200/400`
   * `GET /api/v1/auth/password/reset?token=` → form (siempre `200` si formato OK, no consume ni revela)
 * **Auth:** Ninguna. `X-Request-ID` recomendado. Body ≤2KB (start) / ≤8KB (confirm). `Cache-Control: no-store`.
-* **Rate-limit:** `pwdreset:start:ip 10/hora`, `:email 3/hora`, `confirm:ip 20/min`, `:tok 5/min` → `429 + Retry-After`.
+* **Rate-limit:** `pwdreset:start:ip 10/hora`, `confirm:ip 20/min`, `:tok 5/min` → `429 + Retry-After`. El bucket `:email 3/hora` y las quotas (60s/5-24h) responden `202` genérico en vez de `429` para no oracular elegibilidad.
 
 ### Start / Confirm
 ```bash
@@ -29,7 +29,7 @@ Vía outbox. Sin `token/clave` (solo hashes). Key `user_id`/`email_hash`.
 { "event_id": "uuid", "event_type": "password.reset_requested", "occurred_at": "...", "trace_id": "4bf92f...",
   "payload": { "user_id": "uuid-or-null", "email_hash": "sha256:...", "expires_at": "...+15min" } }
 { "event_id": "uuid", "event_type": "password.changed", "occurred_at": "...",
-  "payload": { "user_id": "uuid", "via": "reset", "request_id": "550e8400-..." } }
+  "payload": { "user_id": "uuid", "via": "reset", "risk": "low|high", "request_id": "550e8400-..." } }
 { "event_id": "uuid", "event_type": "password.reset_federated_hint", "occurred_at": "...",
   "payload": { "user_id": "uuid", "email_hash": "sha256:..." } }
 ```

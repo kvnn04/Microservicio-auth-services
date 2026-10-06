@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -11,14 +12,15 @@ import (
 	"syscall"
 	"time"
 
-	adapterhttp "auth-identity-service/internal/adapter/http"
 	"auth-identity-service/internal/adapter/colas/kafka"
+	adapterhttp "auth-identity-service/internal/adapter/http"
 	"auth-identity-service/internal/adapter/http/handlers"
 	"auth-identity-service/internal/adapter/http/middleware"
 	"auth-identity-service/internal/adapter/identity"
 	"auth-identity-service/internal/adapter/persistencia/postgres"
 	redisadapter "auth-identity-service/internal/adapter/persistencia/redis"
 	"auth-identity-service/internal/adapter/security"
+	"auth-identity-service/internal/domain/auth"
 	"auth-identity-service/internal/service"
 	"auth-identity-service/pkg/logger"
 
@@ -144,16 +146,18 @@ func main() {
 	signingIss := mustEnv("SESSION_ISS", "https://auth.example.com")
 	signingAud := mustEnv("SESSION_AUD", "api")
 	var edSigner *security.Ed25519Signer
+	var edPriv ed25519.PrivateKey
 	if raw := strings.TrimSpace(os.Getenv("SESSION_SIGNING_KEY")); raw != "" {
-		if priv, perr := security.ParseEd25519PrivateKey(raw); perr == nil {
-			if s, serr := security.NewEd25519Signer(priv, signingKID, signingIss, signingAud); serr == nil {
-				edSigner = s
-			} else {
-				log.Error("ed25519 signer invalid", slog.String("error_code", "ISSUE_UNAVAILABLE"))
-				os.Exit(1)
-			}
-		} else {
+		priv, perr := security.ParseEd25519PrivateKey(raw)
+		if perr != nil {
 			log.Error("session signing key invalid", slog.String("error_code", "ISSUE_UNAVAILABLE"))
+			os.Exit(1)
+		}
+		edPriv = priv
+		if s, serr := security.NewEd25519Signer(priv, signingKID, signingIss, signingAud); serr == nil {
+			edSigner = s
+		} else {
+			log.Error("ed25519 signer invalid", slog.String("error_code", "ISSUE_UNAVAILABLE"))
 			os.Exit(1)
 		}
 	} else if strings.ToLower(os.Getenv("ENV")) == "production" {
@@ -162,6 +166,7 @@ func main() {
 	} else {
 		// Dev/ephemeral (WARN): nunca en prod.
 		priv, _, _ := security.GenerateEd25519Key()
+		edPriv = priv
 		// GenerateEd25519Key retorna (priv, pubB64, err); reconstruye signer.
 		if s, serr := security.NewEd25519Signer(priv, signingKID, signingIss, signingAud); serr == nil {
 			edSigner = s
@@ -229,6 +234,52 @@ func main() {
 	plessVerifySvc := service.NewPasswordlessVerifyService(plessStore, issueSvc, mfaIssuer, mfaStores,
 		idem, audit, plessMetrics, adapterhttp.NewOtelTracer())
 
+	// CU-CRED-01: recuperación de contraseña (sin auto-login: no usa IssueService).
+	pwdResetCache := redisadapter.NewPasswordResetCache(rdb)
+	pwdResetMetrics := adapterhttp.NewPrometheusPwdResetMetrics()
+	pwdResetStore := postgres.NewCombinedPasswordResetStore(pool, pwdResetCache, sessionCache, frontURL,
+		func(reason string) { pwdResetMetrics.IncResetFallback(reason) })
+	pwdResetStartSvc := service.NewPasswordResetStartService(pwdResetStore, tokens, idem, audit,
+		pwdResetMetrics, adapterhttp.NewOtelTracer())
+	pwdResetConfirmSvc := service.NewPasswordResetConfirmService(pwdResetStore, hasher, breach, idem, audit,
+		pwdResetMetrics, adapterhttp.NewOtelTracer())
+
+	// CU-AUTH-06: Step-Up (misma clave Ed25519, aud=step-up aislado; jti en Redis).
+	// Env: STEP_UP_MAX_AGE=300s, STEP_UP_TTL=300s (consts de dominio),
+	// ENFORCE_STEP_UP_TOKEN=false (compat fast-pass O token).
+	stepUpTokenIssuer, err := security.NewStepUpTokenIssuer(edPriv, signingKID, signingIss)
+	if err != nil {
+		log.Error("step-up signer invalid", slog.String("error_code", "STEP_UP_UNAVAILABLE"))
+		os.Exit(1)
+	}
+	stepUpJTIs := redisadapter.NewStepUpJTIStore(rdb)
+	stepUpMetrics := adapterhttp.NewPrometheusStepUpMetrics()
+	enforceStepUp := strings.ToLower(os.Getenv("ENFORCE_STEP_UP_TOKEN")) == "true"
+	stepUpSvc := service.NewStepUpService(repo, hasher, loginTracker,
+		security.NewTOTPProvider(), mfaBox, mfaStores, mfaStores,
+		security.NewBackupCodeIssuer([]byte(os.Getenv("PASSWORD_PEPPER")), []byte(os.Getenv("PEPPER_PREV"))),
+		postgres.NewBackupCodeStore(pool), stepUpTokenIssuer, stepUpJTIs,
+		repo, idem, audit, stepUpMetrics, adapterhttp.NewOtelTracer())
+	stepUpSvc.BackupMetrics = adapterhttp.NewPrometheusBackupMetrics()
+
+	// CU-CRED-02: cambio con sesión (preserva actual, revoca pares).
+	// Sin auto-login: no usa IssueService. TTL/history son consts de dominio.
+	pwdHistStore := postgres.NewCombinedPasswordHistoryStore(pool, sessionCache, frontURL,
+		func(reason string) { pwdResetMetrics.IncResetFallback(reason) })
+	changeMetrics := adapterhttp.NewPrometheusChangeMetrics()
+	changeSvc := service.NewChangePasswordService(pwdHistStore, hasher, breach, loginTracker, stepUpSvc,
+		repo, idem, audit, changeMetrics, adapterhttp.NewOtelTracer())
+
+	// CU-CRED-03: cambio de email (Step-Up en servicio, doble-mail, corte+relogin).
+	emailChangeCache := redisadapter.NewEmailChangeCache(rdb)
+	emailChangeMetrics := adapterhttp.NewPrometheusEmailChangeMetrics()
+	emailChangeStore := postgres.NewCombinedEmailChangeStore(pool, emailChangeCache, sessionCache, frontURL,
+		func(reason string) { emailChangeMetrics.IncEmailChangeFallback(reason) })
+	emailChangeStartSvc := service.NewEmailChangeStartService(repo, emailChangeStore, stepUpSvc, tokens,
+		idem, audit, emailChangeMetrics, adapterhttp.NewOtelTracer())
+	emailChangeConfirmSvc := service.NewEmailChangeConfirmService(emailChangeStore,
+		idem, audit, emailChangeMetrics, adapterhttp.NewOtelTracer())
+
 	mux := http.NewServeMux()
 	registerLimit := middleware.RateLimitProgressive(limiter, func(r *http.Request) string {
 		return redisadapter.IPKey(verifyClientIP(r))
@@ -273,6 +324,22 @@ func main() {
 	mux.Handle("GET /api/v1/auth/passwordless",
 		middleware.Recover(middleware.RequestID(plessVerifyIPLimit(handlers.PlessVerifyHandler(plessVerifySvc, limiter, secureCookies)))),
 	)
+	// CU-CRED-01: reset sin contraseña (emisor de correos: 10/hora/IP).
+	pwdResetStartIPLimit := middleware.RateLimitProgressive(limiter, func(r *http.Request) string {
+		return "rl:pwdreset:start:ip:" + verifyClientIP(r)
+	}, 10, time.Hour, blockThreshold, blocks)
+	pwdResetConfirmIPLimit := middleware.RateLimitProgressive(limiter, func(r *http.Request) string {
+		return "rl:pwdreset:confirm:ip:" + verifyClientIP(r)
+	}, 20, time.Minute, blockThreshold, blocks)
+	mux.Handle("POST /api/v1/auth/password/reset/start",
+		middleware.Recover(middleware.RequestID(pwdResetStartIPLimit(handlers.PwdResetStartHandler(pwdResetStartSvc, limiter)))),
+	)
+	mux.Handle("POST /api/v1/auth/password/reset/confirm",
+		middleware.Recover(middleware.RequestID(pwdResetConfirmIPLimit(handlers.PwdResetConfirmHandler(pwdResetConfirmSvc, limiter)))),
+	)
+	mux.Handle("GET /api/v1/auth/password/reset",
+		middleware.Recover(middleware.RequestID(pwdResetConfirmIPLimit(handlers.PwdResetConfirmHandler(pwdResetConfirmSvc, limiter)))),
+	)
 	fedAuthzLimit := middleware.RateLimitProgressive(limiter, func(r *http.Request) string {
 		return "rl:fed_authz:ip:" + verifyClientIP(r)
 	}, 20, time.Minute, blockThreshold, blocks)
@@ -304,7 +371,6 @@ func main() {
 	unlinkSvc := service.NewUnlinkService(linkStore, repo, hasher, idem, audit,
 		linkMetrics, adapterhttp.NewOtelTracer(), 5*time.Minute)
 	authMw := middleware.RequireAuth(hybridVerifier)
-	freshMw := middleware.RequireFreshAuth(5 * time.Minute)
 	linkUserKey := func(suffix string, limit int, window time.Duration) func(http.Handler) http.Handler {
 		return middleware.RateLimitKey(limiter, func(r *http.Request) string {
 			if uid, _, ok := middleware.AuthUserFromContext(r.Context()); ok {
@@ -313,25 +379,26 @@ func main() {
 			return "rl:link:" + suffix + ":anon"
 		}, limit, window)
 	}
-	linkChain := func(h http.Handler, rl func(http.Handler) http.Handler, fresh bool) http.Handler {
+	// CU-AUTH-06: guard scopeado (fast-pass O X-Step-Up-Token). scope "" = solo auth.
+	linkChain := func(h http.Handler, rl func(http.Handler) http.Handler, scope auth.StepUpScope) http.Handler {
 		inner := middleware.ProviderAllowlist(allowedProviders)(rl(h))
-		if fresh {
-			inner = freshMw(inner)
+		if scope != "" {
+			inner = middleware.RequireStepUp(scope, stepUpSvc, enforceStepUp)(inner)
 		}
 		return middleware.Recover(middleware.RequestID(authMw(inner)))
 	}
 	mux.Handle("POST /api/v1/auth/federated/{provider}/link",
-		linkChain(handlers.LinkInitiateHandler(linkSvc, limiter), linkUserKey("init", 10, time.Hour), true))
+		linkChain(handlers.LinkInitiateHandler(linkSvc, limiter), linkUserKey("init", 10, time.Hour), auth.ScopeFederatedLink))
 	mux.Handle("GET /api/v1/auth/federated/{provider}/link/callback",
 		linkChain(handlers.LinkCallbackHandler(linkSvc, limiter), middleware.RateLimitKey(limiter, func(r *http.Request) string {
 			return "rl:link:cb:ip:" + verifyClientIP(r)
-		}, 10, time.Minute), true))
+		}, 10, time.Minute), auth.ScopeFederatedLink))
 	mux.Handle("DELETE /api/v1/auth/federated/{provider}",
-		linkChain(handlers.UnlinkHandler(unlinkSvc, limiter), linkUserKey("unlink", 10, time.Hour), true))
+		linkChain(handlers.UnlinkHandler(unlinkSvc, limiter), linkUserKey("unlink", 10, time.Hour), auth.ScopeFederatedUnlink))
 	mux.Handle("POST /api/v1/auth/federated/{provider}/unlink",
-		linkChain(handlers.UnlinkHandler(unlinkSvc, limiter), linkUserKey("unlink", 10, time.Hour), true))
+		linkChain(handlers.UnlinkHandler(unlinkSvc, limiter), linkUserKey("unlink", 10, time.Hour), auth.ScopeFederatedUnlink))
 	mux.Handle("GET /api/v1/auth/federated/linked",
-		linkChain(handlers.LinkedListHandler(unlinkSvc, limiter), linkUserKey("list", 60, time.Minute), false))
+		linkChain(handlers.LinkedListHandler(unlinkSvc, limiter), linkUserKey("list", 60, time.Minute), ""))
 	// CU-AUTH-02: MFA TOTP (setup/enable/disable con Step-Up; verify con pre-token).
 	mfaSetupLimit := middleware.RateLimitKey(limiter, func(r *http.Request) string {
 		if uid, _, ok := middleware.AuthUserFromContext(r.Context()); ok {
@@ -343,15 +410,15 @@ func main() {
 		return "rl:mfa:verify:ip:" + verifyClientIP(r)
 	}, 20, time.Minute)
 	mux.Handle("POST /api/v1/auth/mfa/totp/setup",
-		linkChain(handlers.MFASetupHandler(mfaSvc, limiter), mfaSetupLimit, true))
+		linkChain(handlers.MFASetupHandler(mfaSvc, limiter), mfaSetupLimit, auth.ScopeMFARotate))
 	mux.Handle("POST /api/v1/auth/mfa/totp/enable",
-		linkChain(handlers.MFAEnableHandler(mfaSvc), mfaSetupLimit, true))
+		linkChain(handlers.MFAEnableHandler(mfaSvc), mfaSetupLimit, auth.ScopeMFARotate))
 	mux.Handle("POST /api/v1/auth/mfa/verify",
 		middleware.Recover(middleware.RequestID(mfaVerifyIPLimit(handlers.MFAVerifyHandler(mfaSvc, limiter, secureCookies)))))
 	mux.Handle("DELETE /api/v1/auth/mfa/totp",
-		linkChain(handlers.MFADisableHandler(mfaSvc), mfaSetupLimit, true))
+		linkChain(handlers.MFADisableHandler(mfaSvc), mfaSetupLimit, auth.ScopeMFADisable))
 	mux.Handle("GET /api/v1/auth/mfa/status",
-		linkChain(handlers.MFAStatusHandler(mfaSvc), linkUserKey("mfastatus", 60, time.Minute), false))
+		linkChain(handlers.MFAStatusHandler(mfaSvc), linkUserKey("mfastatus", 60, time.Minute), ""))
 	// CU-AUTH-03: regenerate con Step-Up (10/hora/user).
 	regenLimit := middleware.RateLimitKey(limiter, func(r *http.Request) string {
 		if uid, _, ok := middleware.AuthUserFromContext(r.Context()); ok {
@@ -360,7 +427,106 @@ func main() {
 		return "rl:backup:regen:anon"
 	}, 10, time.Hour)
 	mux.Handle("POST /api/v1/auth/mfa/backup-codes/regenerate",
-		linkChain(handlers.MFARegenerateHandler(mfaSvc, limiter), regenLimit, true))
+		linkChain(handlers.MFARegenerateHandler(mfaSvc, limiter), regenLimit, auth.ScopeBackupRegen))
+	// CU-AUTH-06: challenge Step-Up (auth + IP 30/min; usuario 10/min en handler).
+	stepUpChallengeIPLimit := middleware.RateLimitKey(limiter, func(r *http.Request) string {
+		return "rl:step-up:ip:" + verifyClientIP(r)
+	}, 30, time.Minute)
+	mux.Handle("POST /api/v1/auth/step-up/challenge",
+		middleware.Recover(middleware.RequestID(authMw(stepUpChallengeIPLimit(
+			handlers.StepUpChallengeHandler(stepUpSvc, limiter))))))
+	// CU-CRED-02: cambio con sesión (Bearer + rate 5/h por usuario en handler;
+	// federated-set además X-Step-Up-Token, verificado en el servicio).
+	mux.Handle("POST /api/v1/auth/password/change",
+		middleware.Recover(middleware.RequestID(authMw(handlers.ChangePasswordHandler(changeSvc, limiter)))),
+	)
+	// CU-CRED-03: cambio de email (Step-Up verificado en el servicio).
+	// Start: auth + usuario 3/h + IP 20/h. Confirm/GET: anónimo + IP 20/min.
+	emailChangeUserLimit := middleware.RateLimitKey(limiter, func(r *http.Request) string {
+		if uid, _, ok := middleware.AuthUserFromContext(r.Context()); ok {
+			return "rl:emailchange:user:" + uid
+		}
+		return "rl:emailchange:user:anon"
+	}, 3, time.Hour)
+	emailChangeStartIPLimit := middleware.RateLimitKey(limiter, func(r *http.Request) string {
+		return "rl:emailchange:start:ip:" + verifyClientIP(r)
+	}, 20, time.Hour)
+	emailChangeConfirmIPLimit := middleware.RateLimitKey(limiter, func(r *http.Request) string {
+		return "rl:emailchange:confirm:ip:" + verifyClientIP(r)
+	}, 20, time.Minute)
+	mux.Handle("POST /api/v1/auth/email/change/start",
+		middleware.Recover(middleware.RequestID(authMw(emailChangeUserLimit(emailChangeStartIPLimit(
+			handlers.EmailChangeStartHandler(emailChangeStartSvc, limiter)))))),
+	)
+	mux.Handle("POST /api/v1/auth/email/change/confirm",
+		middleware.Recover(middleware.RequestID(emailChangeConfirmIPLimit(
+			handlers.EmailChangeConfirmHandler(emailChangeConfirmSvc, hybridVerifier)))),
+	)
+	mux.Handle("GET /api/v1/auth/email/change",
+		middleware.Recover(middleware.RequestID(emailChangeConfirmIPLimit(
+			handlers.EmailChangeConfirmHandler(emailChangeConfirmSvc, hybridVerifier)))),
+	)
+	// CU-SES-01: logout individual (abre Módulo 4).
+	// Sin RequireAuth estricto: el handler acepta Bearer o {refresh_token}
+	// alternativo; el servicio verifica firma aunque el jti esté denylisteado
+	// (idempotencia) y exige exp futuro. Rate en el servicio
+	// (logout:user 30/min + logout:ip 60/min vía limiter).
+	// Env: LOGOUT_RATE=30/min (const auth.LogoutUserLimit).
+	logoutCache := redisadapter.NewLogoutCache(rdb)
+	logoutRevoker := postgres.NewSessionRevoker(pool, logoutCache,
+		func(reason string) { log.Warn("logout redis fallback", slog.String("reason", reason)) })
+	logoutMetrics := adapterhttp.NewPrometheusLogoutMetrics()
+	logoutSvc := service.NewLogoutService(edSigner, logoutRevoker, limiter, idem,
+		logoutMetrics, adapterhttp.NewOtelTracer())
+	mux.Handle("POST /api/v1/auth/logout",
+		middleware.Recover(middleware.RequestID(handlers.LogoutHandler(logoutSvc, secureCookies))),
+	)
+	// CU-SES-02: corte global (cierra Módulo 4 de sesiones).
+	// Sin RequireAuth estricto: entra con Bearer de cualquier edad aunque el
+	// llamante esté denylisteado o con valid_after viejo (el corte no espera).
+	// Rate en el servicio (logout-global:user 5/hora + :ip 20/hora vía limiter).
+	// Env: LOGOUT_GLOBAL_RATE=5/h (const auth.LogoutGlobalUserLimit).
+	globalSweep := redisadapter.NewGlobalSweep(rdb)
+	globalRevoker := postgres.NewGlobalRevoker(pool, globalSweep,
+		func(reason string) { log.Warn("logout-global redis fallback", slog.String("reason", reason)) })
+	globalMetrics := adapterhttp.NewPrometheusGlobalMetrics()
+	globalSvc := service.NewLogoutGlobalService(edSigner, globalRevoker, limiter, idem,
+		globalMetrics, adapterhttp.NewOtelTracer())
+	mux.Handle("POST /api/v1/auth/logout-global",
+		middleware.Recover(middleware.RequestID(handlers.LogoutGlobalHandler(globalSvc, secureCookies))),
+	)
+	// CU-SES-03: inventario + bisturí de sesiones propias (cierra Módulo 4).
+	// Sin RequireAuth estricto (tolerante a denylisteado, igual SES-01/02);
+	// rate en los servicios (list 60/min user+IP, revoke-one 20/hora user).
+	// Touch best-effort con debounce 5min/sid (supuesto Q5).
+	// Env: SESSIONS_RATE=* (consts auth.ListUserLimit/RevokeOneUserLimit).
+	sessionLister := postgres.NewSessionLister(pool, redisadapter.NewSessionListCache(rdb),
+		func(reason string) { log.Warn("sessions redis fallback", slog.String("reason", reason)) })
+	sessionsMetrics := adapterhttp.NewPrometheusSessionsMetrics()
+	listSvc := service.NewListSessionsService(edSigner, sessionLister, limiter, audit,
+		sessionsMetrics, adapterhttp.NewOtelTracer())
+	revokeOneSvc := service.NewRevokeSessionService(edSigner, sessionLister, limiter,
+		sessionsMetrics, adapterhttp.NewOtelTracer())
+	touchMw := middleware.SessionTouch(edSigner, sessionLister)
+	mux.Handle("GET /api/v1/auth/sessions",
+		middleware.Recover(middleware.RequestID(touchMw(handlers.SessionsListHandler(listSvc)))),
+	)
+	mux.Handle("DELETE /api/v1/auth/sessions/{sid}",
+		middleware.Recover(middleware.RequestID(touchMw(handlers.RevokeOneHandler(revokeOneSvc)))),
+	)
+	// CU-SES-04: renovación por Refresh (cierra Módulo 4). Sin auth clásica:
+	// el Refresh presentado manda (el Access expirado no bloquea renovar).
+	// Rate en el servicio (refresh:ip 30/min + refresh:fam 10/min).
+	// Env: ROTATE_GRACE=10s (const auth.GraceWindow).
+	rotationCache := redisadapter.NewRotationCache(rdb)
+	rotationStore := postgres.NewCombinedRotationStore(pool, rotationCache, globalRevoker,
+		func(reason string) { log.Warn("rotation redis fallback", slog.String("reason", reason)) })
+	rotationMetrics := adapterhttp.NewPrometheusRotationMetrics()
+	rotateSvc := service.NewRotateService(rotationStore, edSigner, security.NewRefreshGenerator(),
+		limiter, idem, audit, rotationMetrics, adapterhttp.NewOtelTracer())
+	mux.Handle("POST /api/v1/auth/refresh",
+		middleware.Recover(middleware.RequestID(handlers.RefreshHandler(rotateSvc, secureCookies))),
+	)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		// CU-AUTH-04: chequea clave de firma cargada (fail-fast ya garantizado).
 		if edSigner == nil || edSigner.ActiveKID() == "" {

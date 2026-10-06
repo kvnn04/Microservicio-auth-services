@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"auth-identity-service/internal/domain/shared"
 	redisadapter "auth-identity-service/internal/adapter/persistencia/redis"
+	"auth-identity-service/internal/domain/shared"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -55,7 +55,8 @@ func (r *LegalRepository) GetActive(ctx context.Context) (shared.LegalDocument, 
 
 // RecordTx inserta en la Tx de negocio (tx opaca any → cast pgx.Tx).
 // ON CONFLICT DO NOTHING: replay mismo RequestID no duplica.
-func (r *LegalRepository) RecordTx(ctx context.Context, tx any, recs []shared.ConsentRecord) error {	ptx, ok := tx.(pgx.Tx)
+func (r *LegalRepository) RecordTx(ctx context.Context, tx any, recs []shared.ConsentRecord) error {
+	ptx, ok := tx.(pgx.Tx)
 	if !ok {
 		return fmt.Errorf("tx type: %w", shared.ErrLegalInfra)
 	}

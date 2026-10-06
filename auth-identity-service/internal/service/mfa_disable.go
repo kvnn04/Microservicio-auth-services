@@ -25,7 +25,7 @@ type DisableOutput struct {
 func (s *MFAService) Disable(ctx context.Context, in DisableInput) (*DisableOutput, error) {
 	ctx, span := s.Tracer.Start(ctx, "UseCase.MFADisable")
 	defer span.End()
-	if err := s.fresh(in.User); err != nil {
+	if err := s.freshStepUp(ctx, in.User, auth.ScopeMFADisable); err != nil {
 		s.Metrics.IncMFA("disable", "step_up_required")
 		return nil, err
 	}

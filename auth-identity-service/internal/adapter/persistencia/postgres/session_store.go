@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"auth-identity-service/internal/domain/auth"
 	"auth-identity-service/internal/domain/user"
@@ -48,10 +49,14 @@ func (s *SessionStore) Create(ctx context.Context, sess auth.Session, fam auth.R
 	defer tx.Rollback(ctx)
 
 	if _, err := tx.Exec(ctx, `INSERT INTO sessions
-		(sid, user_id, family, jti_actual, device_hash, ip_hash, created_at, last_seen, expires_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		(sid, user_id, family, jti_actual, device_hash, ip_hash, created_at, last_seen, expires_at,
+		device_label, ip_masked, location, auth_time, amr, roles, roles_ver)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
 		sid, uid, family, jti, sess.DeviceHash, sess.IPHash,
 		sess.CreatedAt, sess.LastSeen, sess.ExpiresAt,
+		nonEmptyLabel(sess.DeviceLabel), nonEmptyLabel(sess.IPMasked), sess.Location,
+		pgTime(sess.CreatedAt, sess.AuthTime), nonEmptyStrSlice(sess.AMR, "pwd"),
+		nonEmptyStrSlice(sess.Roles, "user"), sess.RolesVer,
 	); err != nil {
 		if isSessionUniqueViolation(err) {
 			return "", auth.ErrSessionConflict
@@ -59,9 +64,10 @@ func (s *SessionStore) Create(ctx context.Context, sess auth.Session, fam auth.R
 		return "", fmt.Errorf("insert session %v: %w", err, auth.ErrSessionInfra)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO refresh_families
-		(family, user_id, current_hash, parent_hash, counter, absolute_exp, revoked)
-		VALUES ($1,$2,$3,$4,$5,$6,FALSE)`,
+		(family, user_id, current_hash, parent_hash, counter, absolute_exp, revoked, device_hash)
+		VALUES ($1,$2,$3,$4,$5,$6,FALSE,$7)`,
 		family, uid, fam.CurrentHash, fam.ParentHash, fam.Counter, fam.AbsoluteExp,
+		sess.DeviceHash,
 	); err != nil {
 		if isSessionUniqueViolation(err) {
 			return "", auth.ErrSessionConflict
@@ -169,3 +175,27 @@ func sessionContainsFold(s, sub string) bool {
 }
 
 var _ auth.SessionStore = (*SessionStore)(nil)
+
+// nonEmptyLabel normaliza labels vacíos al DEFAULT PG ('unknown').
+func nonEmptyLabel(s string) string {
+	if s == "" {
+		return "unknown"
+	}
+	return s
+}
+
+// nonEmptyStrSlice evita NULL en columnas TEXT[] NOT NULL.
+func nonEmptyStrSlice(v []string, def string) []string {
+	if len(v) == 0 {
+		return []string{def}
+	}
+	return v
+}
+
+// pgTime evita timestamptz cero (defensivo; el dominio ya exige AuthTime).
+func pgTime(fallback, v time.Time) time.Time {
+	if v.IsZero() {
+		return fallback
+	}
+	return v
+}

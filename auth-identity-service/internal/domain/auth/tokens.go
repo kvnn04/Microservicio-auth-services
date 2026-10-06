@@ -77,16 +77,27 @@ type IssuedPair struct {
 }
 
 // Session VO persistido (PG sessions + Redis sess:<sid>).
+// DeviceLabel/IPMasked/Location son la vista pública (CU-SES-03,
+// denormalizada al Issue; 'unknown'/"" si la fila es pre-018).
+// AuthTime/AMR/Roles/RolesVer son el contexto de emisión (CU-SES-04:
+// re-firmar el Access en cada rotate preservando Step-Up y roles).
 type Session struct {
-	SID        string
-	UserID     string
-	Family     string
-	JTI        string
-	DeviceHash string
-	IPHash     string
-	CreatedAt  time.Time
-	LastSeen   time.Time
-	ExpiresAt  time.Time
+	SID         string
+	UserID      string
+	Family      string
+	JTI         string
+	DeviceHash  string
+	IPHash      string
+	DeviceLabel string
+	IPMasked    string
+	Location    string
+	AuthTime    time.Time
+	AMR         []string
+	Roles       []string
+	RolesVer    int
+	CreatedAt   time.Time
+	LastSeen    time.Time
+	ExpiresAt   time.Time
 }
 
 // RefreshFamily familia rotativa (PG refresh_families + Redis fam:<family>).

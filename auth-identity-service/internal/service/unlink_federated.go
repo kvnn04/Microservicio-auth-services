@@ -39,13 +39,13 @@ type LinkedItem struct {
 
 // UnlinkService orquesta unlink + list. Solo interfaces de dominio.
 type UnlinkService struct {
-	Links   user.FederatedLinkStore
-	Users   user.UserRepository
-	Hasher  auth.PasswordHasher
-	Idem    shared.IdempotencyStore
-	Audit   shared.AuditLogger
-	Metrics LinkMetricsPort
-	Tracer  TracerPort
+	Links     user.FederatedLinkStore
+	Users     user.UserRepository
+	Hasher    auth.PasswordHasher
+	Idem      shared.IdempotencyStore
+	Audit     shared.AuditLogger
+	Metrics   LinkMetricsPort
+	Tracer    TracerPort
 	StepUpAge time.Duration
 }
 
@@ -88,10 +88,12 @@ func (s *UnlinkService) Unlink(ctx context.Context, in UnlinkInput) (*UnlinkOutp
 	if _, err := uuid.Parse(in.RequestID); err != nil {
 		return nil, &ValidationError{Fields: []FieldError{{Field: "request_id", Reason: "INVALID_FORMAT"}}}
 	}
-	// Step-Up + password si tiene.
-	if err := user.RequireFreshAuth(in.User.AuthTime, time.Now().UTC(), s.StepUpAge); err != nil {
-		s.Metrics.IncLink(string(p), "unlink", "step_up_required")
-		return nil, err
+	// Step-Up + password si tiene (token federated:unlink también vale, CU-AUTH-06).
+	if !StepUpSatisfied(ctx, auth.ScopeFederatedUnlink) {
+		if err := user.RequireFreshAuth(in.User.AuthTime, time.Now().UTC(), s.StepUpAge); err != nil {
+			s.Metrics.IncLink(string(p), "unlink", "step_up_required")
+			return nil, err
+		}
 	}
 	u, err := s.Users.FindByID(ctx, in.User.ID)
 	if err != nil {

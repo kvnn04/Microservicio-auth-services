@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"auth-identity-service/internal/adapter/http/dto"
-	"auth-identity-service/internal/domain/user"
 	redisadapter "auth-identity-service/internal/adapter/persistencia/redis"
+	"auth-identity-service/internal/domain/user"
 	"auth-identity-service/internal/service"
 )
 

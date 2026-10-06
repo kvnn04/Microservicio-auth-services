@@ -55,7 +55,7 @@ func (m *EmailMailer) DrainOnce(ctx context.Context, limit int) error {
 	}
 	type item struct {
 		id, to, subject, body string
-		attempts             int
+		attempts              int
 	}
 	var items []item
 	for rows.Next() {
@@ -153,7 +153,8 @@ func (m *EmailMailer) DrainNotifyOnce(ctx context.Context, limit int) error {
 	return nil
 }
 
-func (m *EmailMailer) sendNotify(ctx context.Context, aggregateID string) error {	var to string
+func (m *EmailMailer) sendNotify(ctx context.Context, aggregateID string) error {
+	var to string
 	if err := m.pool.QueryRow(ctx, `SELECT email_normalized FROM users WHERE id=$1::uuid`, aggregateID).Scan(&to); err != nil {
 		return err
 	}
@@ -227,7 +228,7 @@ func (m *EmailMailer) sendFederatedCollision(ctx context.Context, payloadJSON st
 	return m.send(to, "Intento de acceso con Google",
 		"Hola,\n\nAlguien intento crear una cuenta con Google usando tu direccion de correo.\n"+
 			"Si fuiste tu e iniciaste sesion para vincularla, ignora este mensaje.\n\n"+
-			"Iniciar sesion: " + m.base() + "/login\n")
+			"Iniciar sesion: "+m.base()+"/login\n")
 }
 
 // sendLinkCollision avisa a AMBAS puntas sin PII cruzada (CU-REG-06 §4.2):

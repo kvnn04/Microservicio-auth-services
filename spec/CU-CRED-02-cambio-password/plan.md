@@ -14,12 +14,13 @@
   ```go
   // internal/domain/auth/password_change_ports.go
   type PasswordHistoryStore interface {
+    Current(ctx context.Context, userID string) (*ChangeAccount, error) // hash+ver+status+email
     LastN(ctx context.Context, userID string, n int) ([]string, error) // hashes desc
-    RotateTx(ctx context.Context, tx any, userID, oldHash, newHash string, keepSID, keepFamily string) (peersRevoked int, err error)
-    // Tx: INSERT history(old) + UPDATE users(newHash,ver+1) + revoke families/sessions salvo keep + outbox
+    RotateTx(ctx context.Context, userID, oldHash, newHash string, expectedVer int, keepSID, requestID string) (newVer, peersRevoked int, err error)
+    // Tx: FOR UPDATE + base/ver (TOCTOU) + INSERT history(old) + UPDATE users(newHash,ver+1) + revoke families/sessions salvo keep + outbox + email
   }
   ```
-  Reuso `PasswordHasher` (Verify×N + Hash), `BreachChecker`, `AttemptTracker` (fails), `StepUpVerifier` (solo federated-set), `EventPublisher/Outbox`.
+  Reuso `PasswordHasher` (Verify×N + Hash), `BreachChecker`, `AttemptTracker` (fails), `StepUpService.Check` vía interfaz local (solo federated-set), `EventPublisher/Outbox`.
 
 ### Capa de Aplicación (`internal/service/`)
 * **Servicio:** `internal/service/change_password.go`
@@ -34,12 +35,12 @@
 
 ### Capa de Adaptadores (`internal/adapter/`)
 * **Entrada (HTTP):**
-  * Handler `handlers/password_change.go` (`POST /api/v1/auth/password/change {current_password?, new_password}` auth → `200 {status, sessions_revoked}` o `400/401/429/500`, `no-store`, ≤8KB). `current` ausente con hash → `400 MISSING_CURRENT`; con federated-set exige `X-Step-Up-Token`/fast-pass (reuso `require_step_up` middleware en modo `optional-current`).
+  * Handler `handlers/password_change.go` (`POST /api/v1/auth/password/change {current_password?, new_password}` auth → `200 {status, sessions_revoked}` o `400/401/429/500`, `no-store`, ≤8KB). `current` ausente con hash → `400 MISSING_CURRENT`; con federated-set exige `X-Step-Up-Token`/fast-pass verificado en el servicio (sin middleware Step-Up en la ruta: `current` equivale a Step-Up).
   * DTO `dto/password_change_dto.go`; `errors/map` (+`INVALID_CURRENT, PASSWORD_REUSED, PASSWORD_IN_HISTORY, MISSING_CURRENT, UNEXPECTED_CURRENT`).
-  * Rutas `cmd/api/main.go`: `POST /password/change` con `auth → rate → handler` (Step-Up solo vía body/token aquí, no header obligatorio salvo federated-set).
+  * Rutas `cmd/api/main.go`: `POST /password/change` con `auth → handler` (rate `pwdchange:user 5/h` en handler; Step-Up verificado en servicio solo federated-set).
 * **Salida (Persistencia):**
-  * Postgres: `persistencia/postgres/password_history_store.go` (`password_history(user_id, hash, created_at) + INDEX(user,created)`, `RotateTx`: `INSERT history(old)` + `UPDATE users(hash,ver)` + `UPDATE families revoked WHERE user<>keep` + `DELETE sessions WHERE sid<>keep` + outbox `changed+revoked_peers` en una Tx; `LastN` con `ORDER BY DESC LIMIT 5`).
-  * Redis: `DEL sess:<uid>:*` salvo actual + `DEL fam:*` salvo actual (Lua por `user_id` con `keep`, o `KEYS` acotado por índice `sess:by_user:<uid>` SET que mapea sid list — vinculante: mantener `SET sess:by_user` en Issue (CU-AUTH-04) para borrar sin SCAN).
+  * Postgres: `persistencia/postgres/password_history_store.go` (`password_history(user_id, hash, created_at) + INDEX(user,created)`, `RotateTx`: base/ver optimista + `INSERT history(old)` + `UPDATE users(hash,ver)` + `UPDATE families revoked WHERE user<>keep` + `DELETE sessions WHERE sid<>keep` + outbox `changed+revoked_peers` en una Tx; `LastN` con `ORDER BY DESC LIMIT 5`).
+  * Redis: DEL de pares por claves exactas listadas en la Tx (`sess:<sid>`, `fam:<family>`, `jti:<jti>`; sin SCAN/`KEYS`, ver `spec.md` §8 D-04) + reconciliador existente purga huérfanos.
 * **Salida (Mensajería):** reuso `kafka` (`password.changed{via}` + `session.revoked_peers{kept_sid, count}` + audit); worker SMTP `password_changed` (con `peers` + IP/hora + `si no fuiste tú`).
 * **Salida (Seguridad):** reuso `argon2` (Verify×(2+N) + Hash, pepper) + `hibp` + `AttemptTracker` (fails a lock cuenta, compartido login).
 

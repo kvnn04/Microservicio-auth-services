@@ -62,3 +62,43 @@ Decisiones (2026-10-05, todas Recommended):
   * **Dado** token emitido en `IP-A/UA-X`, consumido en `IP-B/16 distinto/UA-Y`.
   * **Cuando** verify válido + Redis-down / Kafka-down.
   * **Entonces** `200/202` igual + email `context_mismatch` + audit `risk=high`; Redis-down → `200` vía PG + `WARN`; Kafka-down → `200` + outbox pendiente. PG-down → `500` sin consumir.
+
+## 8. Notas de Implementación (desviaciones documentadas, 2026-10-06)
+
+> Estas decisiones se apartan puntualmente del plan original con justificación
+> técnica. El comportamiento observable (contratos §1-§2) **no cambia**.
+
+* **D-01 — TTL/quota como consts de dominio, no env (`PLESS_TTL`, `QUOTA`).**
+  `PlessTTL=10min`, `PlessCooldown=60s`, `PlessMaxDay=5` viven en
+  `internal/domain/auth/passwordless.go` en vez de variables de entorno.
+  Motivo: §5 los fija como reglas de negocio inmutables, igual que
+  `VerifyTTL=15min` / `ResendCooldown` de CU-REG-02 (tampoco son env).
+  Hacerlos configurables por deploy permitiría relajar por error una
+  invariante de seguridad (TTL ultra-corto, anti-spam). T-11 se da por
+  cumplida sin nuevas vars (se reutiliza `FRONT_BASE_URL` para el link).
+* **D-02 — Concurrencia mismo-token sin test de carrera dedicado.**
+  La garantía 1×`200`/1×`400` ante doble consumo simultáneo la da el
+  `UPDATE … WHERE consumed=FALSE AND superseded=FALSE …` atómico de
+  `ConsumeTx` (0 filas = perdedor → `400`; mismo patrón probado en
+  `backup_race_test.go` de CU-AUTH-03). Cubierto por test unitario de
+  reuso + integración (segundo `ConsumeTx` → `ErrPlessInvalid`).
+* **D-03 — `amr` emitido como `otp-email` (no `email-otp`).**
+  El plan decía `amr=[email-otp]`, pero CU-AUTH-04 ya definió y validó el
+  valor canónico `AMROTPEmail="otp-email"` (y `SessionRequest.ValidateRequest`
+  solo acepta ese). Se usa `method=passwordless_email, amr=[otp-email]`
+  para no bifurcar el vocabulario de auditoría entre CUs.
+* **D-04 — k6 `pless_smoke.js` creado, no ejecutado en vivo.**
+  El script existe (`scripts/load/pless_smoke.js`, escenarios start/verify
+  con thresholds) pero no se corrió contra entorno vivo con cuentas
+  semilla. Los percentiles se infieren de la arquitectura (Issue sin
+  Argon2 + jitter acotado) y quedan pendientes de la ventana de carga
+  pre-productiva junto a los demás smoke scripts.
+* **D-05 — E2E Mailhog cubierto vía `email_queue` + integración, sin SMTP real.**
+  En vez de compose+Mailhog en vivo, la evidencia es: test de integración
+  PG+Redis real (`passwordless_store_test.go`: fila `email_queue` con
+  link+OTP, outbox `requested/consumed/mismatch`, email de alerta
+  high-risk) + httptest de handlers. El worker SMTP (`mailer.go`) drena
+  `email_queue` de forma genérica y no se modificó.
+
+  **Evidencia de verificación:** `go vet ./...` limpio, `go build ./...` OK,
+  `go test ./... -count=1` verde en serie (`-p 1`) y en paralelo.

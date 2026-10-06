@@ -39,9 +39,9 @@ func (f *fakeIdP) VerifyIDToken(_ context.Context, _ user.Provider, _, _ string)
 }
 
 type fakeFedRepo struct {
-	bySub   map[string]*user.User
-	byEmail map[string]*user.User
-	created int
+	bySub    map[string]*user.User
+	byEmail  map[string]*user.User
+	created  int
 	onCreate func() error
 }
 
@@ -80,7 +80,9 @@ type fakeStateStore struct {
 	states map[string]auth.FederatedState
 }
 
-func newFakeStateStore() *fakeStateStore { return &fakeStateStore{states: map[string]auth.FederatedState{}} }
+func newFakeStateStore() *fakeStateStore {
+	return &fakeStateStore{states: map[string]auth.FederatedState{}}
+}
 func (f *fakeStateStore) SaveState(_ context.Context, state string, st auth.FederatedState) error {
 	f.states[state] = st
 	return nil
@@ -106,11 +108,11 @@ func (fakeSessions) Issue(_ context.Context, req auth.SessionRequest) (auth.Issu
 
 type fedMetrics struct{ counts map[string]int }
 
-func newFedMetrics() *fedMetrics { return &fedMetrics{counts: map[string]int{}} }
-func (m *fedMetrics) IncFederated(p, r string)       { m.counts[p+"/"+r]++ }
-func (m *fedMetrics) ObserveFederatedDuration(float64) {}
+func newFedMetrics() *fedMetrics                        { return &fedMetrics{counts: map[string]int{}} }
+func (m *fedMetrics) IncFederated(p, r string)          { m.counts[p+"/"+r]++ }
+func (m *fedMetrics) ObserveFederatedDuration(float64)  {}
 func (m *fedMetrics) ObserveIDPLatency(string, float64) {}
-func (m *fedMetrics) IncCollision(p string)          { m.counts["coll/"+p]++ }
+func (m *fedMetrics) IncCollision(p string)             { m.counts["coll/"+p]++ }
 
 func fedSvc(idp *fakeIdP, repo *fakeFedRepo) (*RegisterFederatedService, *fedMetrics) {
 	m := newFedMetrics()

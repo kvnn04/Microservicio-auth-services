@@ -81,7 +81,8 @@ func (s *resendRepo) CreateWithConsents(_ context.Context, _ *user.User, _ []use
 	return nil
 }
 
-func TestResendGenerico(t *testing.T) {	repo := &resendRepo{users: map[string]*user.User{
+func TestResendGenerico(t *testing.T) {
+	repo := &resendRepo{users: map[string]*user.User{
 		"active@example.com":  {ID: uuid.NewString(), EmailNormalized: "active@example.com", Status: user.StatusActive},
 		"pending@example.com": {ID: uuid.NewString(), EmailNormalized: "pending@example.com", Status: user.StatusPendingVerification},
 	}}

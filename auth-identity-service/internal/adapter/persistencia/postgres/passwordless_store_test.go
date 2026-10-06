@@ -7,17 +7,31 @@ package postgres
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	redisadapter "auth-identity-service/internal/adapter/persistencia/redis"
 	"auth-identity-service/internal/domain/auth"
 	"auth-identity-service/internal/domain/user"
-	redisadapter "auth-identity-service/internal/adapter/persistencia/redis"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
+
+// plessIssueRetry reintenta una vez ante deadlock (40P01) por contención con
+// wipes E2E en corridas paralelas (DB compartida).
+func plessIssueRetry(ctx context.Context, store *CombinedPasswordlessStore, rec *auth.PasswordlessRecord) error {
+	if err := store.Issue(ctx, rec); err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "deadlock") || strings.Contains(msg, "40P01") {
+			return store.Issue(ctx, rec)
+		}
+		return err
+	}
+	return nil
+}
 
 func plessTestPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
@@ -78,7 +92,7 @@ func plessRec(uid, th, oh string, ctx auth.PlessContext) *auth.PasswordlessRecor
 	return &auth.PasswordlessRecord{
 		UserID: uid, TokenHash: th, OTPHash: oh,
 		ExpiresAt: time.Now().UTC().Add(auth.PlessTTL),
-		Ctx: ctx, TokenPlain: "plain-" + th[:8], OTPPlain: "12345678",
+		Ctx:       ctx, TokenPlain: "plain-" + th[:8], OTPPlain: "12345678",
 	}
 }
 
@@ -114,7 +128,7 @@ func TestPlessStore_IssueConsume(t *testing.T) {
 	plessEnsureUser(t, pool, uid, email, string(user.StatusActive))
 	emitCtx := auth.NewPlessContext("1.2.3.4", "Mozilla/5.0")
 	rec1 := plessRec(uid, "ptest-th-1-"+uid[:8], "ptest-oh-1-"+uid[:8], emitCtx)
-	if err := store.Issue(ctx, rec1); err != nil {
+	if err := plessIssueRetry(ctx, store, rec1); err != nil {
 		t.Fatalf("issue: %v", err)
 	}
 	// Email encolado con link + OTP.
@@ -135,7 +149,7 @@ func TestPlessStore_IssueConsume(t *testing.T) {
 	// Segundo Issue supersede al primero (solo 1 activo).
 	plessEnsureUser(t, pool, uid, email, string(user.StatusActive))
 	rec2 := plessRec(uid, "ptest-th-2-"+uid[:8], "ptest-oh-2-"+uid[:8], emitCtx)
-	if err := store.Issue(ctx, rec2); err != nil {
+	if err := plessIssueRetry(ctx, store, rec2); err != nil {
 		t.Fatalf("issue2: %v", err)
 	}
 	var sup bool
@@ -160,6 +174,15 @@ func TestPlessStore_IssueConsume(t *testing.T) {
 
 	// ConsumeTx low-risk → MFA false, last_login, outbox consumed.
 	consumeCtx := auth.NewPlessContext("1.2.3.99", "Mozilla/5.0 Chrome/1")
+	// Re-asegura estado ante wipes concurrentes de E2E (serial -p 1 no los hay).
+	plessEnsureUser(t, pool, uid, email, string(user.StatusActive))
+	var tokExists bool
+	_ = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM passwordless_tokens WHERE token_hash=$1)`, rec2.TokenHash).Scan(&tokExists)
+	if !tokExists {
+		if err := store.Issue(ctx, rec2); err != nil {
+			t.Fatalf("re-issue: %v", err)
+		}
+	}
 	res, err := store.ConsumeTx(ctx, uid, rec2.TokenHash, "link", auth.RiskOf(emitCtx, consumeCtx),
 		consumeCtx.IPHash24, consumeCtx.UAHash)
 	if err != nil || res.UserID != uid || res.MFAEnabled {
@@ -198,12 +221,25 @@ func TestPlessStore_HighRiskMismatch(t *testing.T) {
 	emitCtx := auth.NewPlessContext("192.168.1.10", "Mozilla/5.0 Chrome/120")
 	rec := plessRec(uid, "phr-th-"+uid[:8], "phr-oh-"+uid[:8], emitCtx)
 	if err := store.Issue(ctx, rec); err != nil {
-		t.Fatalf("issue: %v", err)
+		// Wipe E2E entre user e Issue: re-asegura y reintenta una vez.
+		plessEnsureUser(t, pool, uid, email, string(user.StatusActive))
+		if err := store.Issue(ctx, rec); err != nil {
+			t.Fatalf("issue: %v", err)
+		}
 	}
 	consumeCtx := auth.NewPlessContext("10.20.30.40", "okhttp/4.12")
 	risk := auth.RiskOf(emitCtx, consumeCtx)
 	if risk != "high" {
 		t.Fatalf("risk: %q", risk)
+	}
+	// Re-asegura estado ante wipes concurrentes de E2E.
+	plessEnsureUser(t, pool, uid, email, string(user.StatusActive))
+	var hrExists bool
+	_ = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM passwordless_tokens WHERE token_hash=$1)`, rec.TokenHash).Scan(&hrExists)
+	if !hrExists {
+		if err := store.Issue(ctx, rec); err != nil {
+			t.Fatalf("re-issue: %v", err)
+		}
 	}
 	if _, err := store.ConsumeTx(ctx, uid, rec.TokenHash, "link", risk, consumeCtx.IPHash24, consumeCtx.UAHash); err != nil {
 		t.Fatalf("consume high: %v", err)
@@ -232,7 +268,11 @@ func TestPlessStore_QuemaTresIntentos(t *testing.T) {
 	bare := NewCombinedPasswordlessStore(pool, nil, "http://localhost:3000", nil)
 	rec := plessRec(uid, "pbu-th-"+uid[:8], "pbu-oh-"+uid[:8], auth.NewPlessContext("1.1.1.1", "UA"))
 	if err := bare.Issue(ctx, rec); err != nil {
-		t.Fatalf("issue: %v", err)
+		// Wipe E2E entre user e Issue: re-asegura y reintenta una vez.
+		plessEnsureUser(t, pool, uid, email, string(user.StatusActive))
+		if err := bare.Issue(ctx, rec); err != nil {
+			t.Fatalf("issue: %v", err)
+		}
 	}
 	for i := 0; i < 2; i++ {
 		if burned, _ := bare.IncrementAttempts(ctx, rec.TokenHash); burned {

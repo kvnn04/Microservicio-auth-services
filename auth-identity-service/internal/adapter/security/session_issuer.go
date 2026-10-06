@@ -62,10 +62,13 @@ func (s *SessionIssuer) Issue(ctx context.Context, userID string) (accessToken, 
 
 // VerifiedSession resume un access token válido (interino HS256; AUTH-04
 // lo reemplazará con verificación asimétrica vía JWKS).
+// SID identifica la sesión (vacío en tokens legacy sin sid; CU-CRED-02 lo
+// usa para preservar la actual en el corte de pares).
 type VerifiedSession struct {
 	UserID   string
 	AuthTime time.Time
 	Expires  time.Time
+	SID      string
 }
 
 // VerifyBusiness valida como Verify y además rechaza tokens con aud

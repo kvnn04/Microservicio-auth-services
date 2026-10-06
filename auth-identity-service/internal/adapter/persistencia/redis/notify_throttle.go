@@ -10,8 +10,9 @@ import (
 )
 
 // Claves de throttling notify (CU-REG-03 RN-03): 1/hora + 3/día por email_hash.
-//   notify:hour:<sha256hex>       SET NX EX 3600 (ventana horaria)
-//   notify:day:<sha256hex>:<yyyy-mm-dd>  contador EX 172800 (cuota diaria)
+//
+//	notify:hour:<sha256hex>       SET NX EX 3600 (ventana horaria)
+//	notify:day:<sha256hex>:<yyyy-mm-dd>  contador EX 172800 (cuota diaria)
 func notifyHourKey(emailHash string) string { return "notify:hour:" + emailHash }
 
 func notifyDayKey(emailHash string) string {
@@ -22,9 +23,9 @@ func notifyDayKey(emailHash string) string {
 // Fail-open: si Redis cae retorna allowed=true + error (el servicio encola
 // igual y la métrica de fallback se registra en el caller vía onFallback).
 type RedisNotifyThrottle struct {
-	client    *redis.Client
-	perHour   int
-	perDay    int
+	client     *redis.Client
+	perHour    int
+	perDay     int
 	onFallback func(string)
 }
 

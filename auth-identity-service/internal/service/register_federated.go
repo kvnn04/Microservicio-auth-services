@@ -474,7 +474,8 @@ func (s *RegisterFederatedService) issueSession(ctx context.Context, userID stri
 	pair, err := s.Sessions.Issue(ctx, auth.SessionRequest{
 		UserID: userID, Method: auth.MethodFederatedGoogle,
 		AMR: []auth.AMR{auth.AMRFederatedGoogle}, AuthTime: time.Now().UTC(),
-		Device: auth.Device{IPHash: sha256HexShort(ip + "/24"), UAHash: sha256HexShort(ua)},
+		Device: auth.Device{IPHash: sha256HexShort(ip + "/24"), UAHash: sha256HexShort(ua),
+			Label: auth.DeviceLabel(ua), IPMasked: auth.MaskIP(ip)},
 		Roles: []string{"user"},
 	})
 	if err != nil {

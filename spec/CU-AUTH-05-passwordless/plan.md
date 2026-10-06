@@ -32,7 +32,7 @@
 ### Capa de Aplicación (`internal/service/`)
 * **Servicios:** `internal/service/passwordless_start.go` + `passwordless_verify.go`
   * `Start(emailRaw, ip, ua, reqID)`: normaliza (malforma→`ErrValidation`) → `CheckLimits(start:ip/email)` (`ErrRateLimited`) → `Eligible` (guarda bool, no ramifica respuesta) → dummy+jitter 60-100ms siempre → si `eligible && quotas OK` → `Issue(nuevo par + ctx + supersede)` + outbox `requested` (si throttled/no-eligible → solo audit `not_sent`) → `Output{Sent:true}` genérico (el handler siempre `202`).
-  * `Verify(tokenOrCode, ip, ua)`: parse (malforma→`ErrValidation`) → `CheckLimits(verify)` → `FindAlive` (miss→`ErrInvalid` + delay 40-80) → `ConstantTime` → `ConsumeTx` (quema 1 uso; 3º fail→burned) → `RiskOf` → si `mfa_enabled` → `MFA.IssueChallenge` → `mfa_required`; sino `Sessions.Issue(method=passwordless_email, amr=[email-otp])` → `active` (+ outbox `consumed` + `context_mismatch` si high). Idempotencia RequestID (replay mismo → mismo output sin re-emitir).
+  * `Verify(tokenOrCode, ip, ua)`: parse (malforma→`ErrValidation`) → `CheckLimits(verify)` → `FindAlive` (miss→`ErrInvalid` + delay 40-80) → `ConstantTime` → `ConsumeTx` (quema 1 uso; 3º fail→burned) → `RiskOf` → si `mfa_enabled` → `MFA.IssueChallenge` → `mfa_required`; sino `Sessions.Issue(method=passwordless_email, amr=[otp-email])` → `active` (+ outbox `consumed` + `context_mismatch` si high). Idempotencia RequestID (replay mismo → mismo output sin re-emitir).
 * **Flujo Orquestado:** forma→rate→lookup→dummy→(issue|noop)→202; forma→rate→find→compare→consume→risk→Issue/MFA→200/202. Nunca distingue elegibilidad en respuestas.
 
 ### Capa de Adaptadores (`internal/adapter/`)

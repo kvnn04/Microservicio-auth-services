@@ -11,13 +11,14 @@ import (
 )
 
 // Claves CU-AUTH-01 (nunca email plano; cuenta por sha256):
-//   login:ip:<ip>            sliding 10/min
-//   login:account:<sha256>   sliding 5/min
-//   fails:<key>              INCR EX 900 (key = user_id o acct:<sha256>)
-//   lock:<key>               {until} EX variable (15/30/60min exponencial)
-//   lock_count:<key>         reincidencias (para exponencial)
-//   notify:lock:<key>        NX EX 3600 (email aviso 1/h)
-func loginIPKey(ip string) string      { return "login:ip:" + ip }
+//
+//	login:ip:<ip>            sliding 10/min
+//	login:account:<sha256>   sliding 5/min
+//	fails:<key>              INCR EX 900 (key = user_id o acct:<sha256>)
+//	lock:<key>               {until} EX variable (15/30/60min exponencial)
+//	lock_count:<key>         reincidencias (para exponencial)
+//	notify:lock:<key>        NX EX 3600 (email aviso 1/h)
+func loginIPKey(ip string) string     { return "login:ip:" + ip }
 func loginAcctKey(h string) string    { return "login:account:" + h }
 func failsKey(key string) string      { return "fails:" + key }
 func lockKey(key string) string       { return "lock:" + key }

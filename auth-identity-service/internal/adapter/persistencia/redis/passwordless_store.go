@@ -11,12 +11,13 @@ import (
 )
 
 // Claves efímeras CU-AUTH-05 (nunca PII/plano: solo hashes SHA-256 hex y UUIDs).
-//   pless:t:<token_hash>          JSON {user_id, otp_hash, exp, ctx} EX 600 NX
-//   pless:o:<otp_hash>            <token_hash> EX 600 NX
-//   pless:active:<user_id>        <token_hash> EX 600 (sobrescribe, 1 activo)
-//   pless:att:<hash>              contador intentos EX 600
-//   pless:sent:<key>              unix envío EX 86400 (cooldown 60s)
-//   pless:count:<key>:<yyyy-mm-dd> contador cuota EX 172800
+//
+//	pless:t:<token_hash>          JSON {user_id, otp_hash, exp, ctx} EX 600 NX
+//	pless:o:<otp_hash>            <token_hash> EX 600 NX
+//	pless:active:<user_id>        <token_hash> EX 600 (sobrescribe, 1 activo)
+//	pless:att:<hash>              contador intentos EX 600
+//	pless:sent:<key>              unix envío EX 86400 (cooldown 60s)
+//	pless:count:<key>:<yyyy-mm-dd> contador cuota EX 172800
 func plessTKey(h string) string      { return "pless:t:" + h }
 func plessOKey(h string) string      { return "pless:o:" + h }
 func plessActiveKey(u string) string { return "pless:active:" + u }

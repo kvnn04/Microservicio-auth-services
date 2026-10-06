@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"auth-identity-service/internal/adapter/colas/kafka"
-	redisadapter "auth-identity-service/internal/adapter/persistencia/redis"
 	"auth-identity-service/internal/adapter/persistencia/postgres"
+	redisadapter "auth-identity-service/internal/adapter/persistencia/redis"
 	"auth-identity-service/pkg/logger"
 
 	"github.com/jackc/pgx/v5/pgxpool"

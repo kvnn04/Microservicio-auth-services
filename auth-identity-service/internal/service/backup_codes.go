@@ -72,7 +72,7 @@ type RegenerateOutput struct {
 func (s *MFAService) Regenerate(ctx context.Context, in RegenerateInput) (*RegenerateOutput, error) {
 	ctx, span := s.Tracer.Start(ctx, "UseCase.MFARegenerate")
 	defer span.End()
-	if err := s.fresh(in.User); err != nil {
+	if err := s.freshStepUp(ctx, in.User, auth.ScopeBackupRegen); err != nil {
 		s.Metrics.IncMFA("regenerate", "step_up_required")
 		return nil, err
 	}

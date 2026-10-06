@@ -31,9 +31,15 @@ const (
 )
 
 // Device huella operativa (base SES-03/SEC-07; no bloquea aquí).
+// IPHash/UAHash son SHA-256 (comparación e índices); Label/IPMasked son
+// la vista pública (denormalizada al Issue en CU-SES-03) y Location la
+// ciudad/país o "" (sin GeoIP). Nunca viajan tokens aquí.
 type Device struct {
-	IPHash string
-	UAHash string
+	IPHash   string
+	UAHash   string
+	Label    string
+	IPMasked string
+	Location string
 }
 
 // DecideLogin: solo found + verify + !locked + ACTIVE emite.

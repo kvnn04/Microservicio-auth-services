@@ -30,22 +30,22 @@ Este catálogo centraliza todos los requerimientos funcionales del sistema Auth 
 | CU-AUTH-03 | Códigos de Respaldo para MFA | 🟢 COMPLETED | [\CU-AUTH-03-backup-codes\](./CU-AUTH-03-backup-codes) | dev_golang/qa/seguridad |
 | CU-AUTH-04 | Emisión y Gestión de Tokens Enterprise | 🟢 COMPLETED | [`CU-AUTH-04-emision-tokens`](./CU-AUTH-04-emision-tokens) | dev_golang/qa/seguridad |
 | CU-AUTH-05 | Inicio de Sesión sin Contraseña | 🟢 COMPLETED | [`CU-AUTH-05-passwordless`](./CU-AUTH-05-passwordless) | dev_golang/qa/seguridad |
-| CU-AUTH-06 | Autenticación Reforzada (Step-Up) | 🔵 READY_FOR_DEV | [`CU-AUTH-06-step-up-auth`](./CU-AUTH-06-step-up-auth) | asistente_de_preguntas |
+| CU-AUTH-06 | Autenticación Reforzada (Step-Up) | 🟢 COMPLETED | [`CU-AUTH-06-step-up-auth`](./CU-AUTH-06-step-up-auth) | dev_golang/qa/seguridad |
 
 ## Módulo 3: Recuperación y Gestión de Credenciales
 | ID | Caso de Uso | Estado | Carpeta Spec | Responsable / Agente |
 | :--- | :--- | :---: | :--- | :--- |
-| CU-CRED-01 | Recuperación de Contraseña | 🔵 READY_FOR_DEV | [`CU-CRED-01-recuperacion-password`](./CU-CRED-01-recuperacion-password) | asistente_de_preguntas |
-| CU-CRED-02 | Cambio de Contraseña desde Sesión Activa | 🔵 READY_FOR_DEV | [`CU-CRED-02-cambio-password`](./CU-CRED-02-cambio-password) | asistente_de_preguntas |
-| CU-CRED-03 | Actualización de Correo Electrónico | 🔵 READY_FOR_DEV | [`CU-CRED-03-actualizacion-email`](./CU-CRED-03-actualizacion-email) | asistente_de_preguntas |
+| CU-CRED-01 | Recuperación de Contraseña | 🟢 COMPLETED | [`CU-CRED-01-recuperacion-password`](./CU-CRED-01-recuperacion-password) | dev_golang/qa/seguridad |
+| CU-CRED-02 | Cambio de Contraseña desde Sesión Activa | 🟢 COMPLETED | [`CU-CRED-02-cambio-password`](./CU-CRED-02-cambio-password) | dev_golang/qa/seguridad |
+| CU-CRED-03 | Actualización de Correo Electrónico | 🟢 COMPLETED | [`CU-CRED-03-actualizacion-email`](./CU-CRED-03-actualizacion-email) | dev_golang/qa/seguridad |
 
 ## Módulo 4: Control y Gestión de Sesiones
 | ID | Caso de Uso | Estado | Carpeta Spec | Responsable / Agente |
 | :--- | :--- | :---: | :--- | :--- |
-| CU-SES-01 | Cierre de Sesión Individual (Logout) | 🔵 READY_FOR_DEV | [`CU-SES-01-logout`](./CU-SES-01-logout) | asistente_de_preguntas |
-| CU-SES-02 | Cierre de Sesión Global (Revocación Masiva) | 🔵 READY_FOR_DEV | [`CU-SES-02-logout-global`](./CU-SES-02-logout-global) | asistente_de_preguntas |
-| CU-SES-03 | Listado y Terminación Selectiva | 🔵 READY_FOR_DEV | [`CU-SES-03-gestion-sesiones`](./CU-SES-03-gestion-sesiones) | asistente_de_preguntas |
-| CU-SES-04 | Renovación Controlada y Detección de Reúso | 🔵 READY_FOR_DEV | [`CU-SES-04-token-rotation`](./CU-SES-04-token-rotation) | asistente_de_preguntas |
+| CU-SES-01 | Cierre de Sesión Individual (Logout) | 🟢 COMPLETED | [`CU-SES-01-logout`](./CU-SES-01-logout) | dev_golang/qa/seguridad |
+| CU-SES-02 | Cierre de Sesión Global (Revocación Masiva) | 🟢 COMPLETED | [`CU-SES-02-logout-global`](./CU-SES-02-logout-global) | dev_golang/qa/seguridad |
+| CU-SES-03 | Listado y Terminación Selectiva | 🟢 COMPLETED | [`CU-SES-03-gestion-sesiones`](./CU-SES-03-gestion-sesiones) | dev_golang/qa/seguridad |
+| CU-SES-04 | Renovación Controlada y Detección de Reúso | 🟢 COMPLETED | [`CU-SES-04-token-rotation`](./CU-SES-04-token-rotation) | dev_golang/qa/seguridad |
 
 ## Módulo 5: Seguridad Proactiva y Defensa Enterprise
 | ID | Caso de Uso | Estado | Carpeta Spec | Responsable / Agente |

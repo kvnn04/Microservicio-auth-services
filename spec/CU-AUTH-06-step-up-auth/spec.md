@@ -63,3 +63,42 @@ Decisiones (2026-10-05, todas Recommended):
   * **Dado** 11 challenges/min (mismo user) y 5 fails/15min; Redis down.
   * **Cuando** challenge 11º, challenge con buena tras lock, challenge/op con Redis down.
   * **Entonces** 11º → `429`; tras lock buena → `401` hasta expirar (no token); Redis-down challenge/token → `500 STEP_UP_UNAVAILABLE` (fail-closed) pero fast-pass local sigue `200` en ops (JWT offline). Kafka-down → `200` + outbox pendiente.
+
+## 8. Notas de Implementación (desviaciones documentadas, 2026-10-06)
+
+> El comportamiento observable (contratos §1-§2) **no cambia**.
+
+* **D-01 — Rate-limit en handler/middleware, no en el servicio.**
+  Los buckets (`step-up:challenge:<user>` 10/min en handler,
+  `step-up:ip` 30/min en `main.go`) viven en la capa HTTP con el
+  `RateLimiter` existente, igual que verify (`rl:verify:tok`) y resend.
+  El servicio no recibe limiter (coherente con el resto de servicios).
+* **D-02 — Verificación de factores en el servicio, sin adapter `StepUpChallenger`.**
+  El plan esbozaba un puerto que adaptara Hasher+TOTP/Backup; se orquesta
+  directamente en `StepUpService` con los puertos ya existentes
+  (`PasswordHasher`, `TOTPProvider`, `SecretBox`, `MFASecretStore`,
+  `MFAChallengeStore`, `BackupCodeIssuer/Store`), reutilizando el
+  anti-replay TOTP compartido con MFA (el counter usado en challenge
+  queda marcado y no sirve en `/mfa/verify`).
+* **D-03 — Sin puerto `StepUpVerifier` separado.**
+  La lógica `VerifyFor` (firma+`aud`+`scope`+`sub`+quema `jti`) es método
+  `Check` del servicio sobre `StepUpTokenIssuer` + `StepUpJTIStore`; el
+  middleware la consume vía interfaz mínima `StepUpChecker`.
+* **D-04 — `kid` único (sin multikid en verificación).**
+  `VerifyToken` exige `kid` igual al activo. Con TTL 5min el impacto de
+  rotación (CRYP-02) es una ventana de re-challenge, documentado para
+  endurecer a multikid junto a JWKS.
+* **D-05 — k6 `stepup_smoke.js` creado, no ejecutado en vivo** (igual que
+  `pless_smoke.js`): pendiente de ventana pre-productiva con cuentas semilla.
+
+  **Evidencia de verificación:** `go vet ./...` limpio, `go build ./...` OK,
+  `go test ./... -count=1` verde en serie (`-p 1`) y en paralelo, incl.
+  E2E de guard con servicio + cripto reales
+  (`require_step_up_e2e_test.go`: stale→401→challenge→token→op→replay 401).
+
+  **Security Gate 🟢 PASSED (STRIDE):** scopes cerrados; doble-factor cuando
+  ambos existen (password Y 2º, mismo 401 opaco); `aud=step-up` aislado de
+  negocio y de Access; 1-uso-1-op-1-`sub` (Lua GET+DEL, reuso → `REUSED`
+  distinto solo en auditoría); sin `password/code/token` en logs, métricas,
+  spans ni outbox (solo `scope/jti/amr`); fail-closed sin Redis con fast-pass
+  offline intacto; `no-store` siempre; locks exponenciales reutilizados.

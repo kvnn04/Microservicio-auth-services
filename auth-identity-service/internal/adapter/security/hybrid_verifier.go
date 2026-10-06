@@ -41,6 +41,7 @@ func (h *HybridVerifier) VerifyBusiness(token string) (*VerifiedSession, error) 
 			UserID:   claims.Sub,
 			AuthTime: unixToTime(claims.AuthTime),
 			Expires:  unixToTime(claims.Exp),
+			SID:      claims.SID,
 		}, nil
 	}
 	// Fallback legacy HS256 (tests + transición).

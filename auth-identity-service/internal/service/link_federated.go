@@ -28,7 +28,7 @@ type LinkMetricsPort interface {
 type NoopLinkMetrics struct{}
 
 func (NoopLinkMetrics) IncLink(string, string, string) {}
-func (NoopLinkMetrics) IncLastFactorBlocked()           {}
+func (NoopLinkMetrics) IncLastFactorBlocked()          {}
 func (NoopLinkMetrics) IncLinkStateFailure(string)     {}
 
 // AuthUser identidad del Bearer (middleware require_auth la inyecta).
@@ -71,20 +71,20 @@ type LinkCallbackOutput struct {
 
 // LinkService orquesta initiate/callback. Solo interfaces de dominio.
 type LinkService struct {
-	IdPs      auth.IdentityProviderClient
-	Links     user.FederatedLinkStore
-	States    user.LinkStateStore
-	Users     user.UserRepository
-	Hasher    auth.PasswordHasher
-	Outbox    OutboxEnqueuer
-	Throttle  user.NotifyThrottle
-	Idem      shared.IdempotencyStore
-	Audit     shared.AuditLogger
-	Metrics   LinkMetricsPort
-	Tracer    TracerPort
+	IdPs            auth.IdentityProviderClient
+	Links           user.FederatedLinkStore
+	States          user.LinkStateStore
+	Users           user.UserRepository
+	Hasher          auth.PasswordHasher
+	Outbox          OutboxEnqueuer
+	Throttle        user.NotifyThrottle
+	Idem            shared.IdempotencyStore
+	Audit           shared.AuditLogger
+	Metrics         LinkMetricsPort
+	Tracer          TracerPort
 	LinkCallbackURI string
-	MaxLinked int
-	StepUpAge time.Duration
+	MaxLinked       int
+	StepUpAge       time.Duration
 }
 
 func NewLinkService(
@@ -127,9 +127,13 @@ func NewLinkService(
 }
 
 // stepUp valida frescura + password si el usuario tiene (RN-03, genérico).
+// Acepta Step-Up token scopeado federated:link (CU-AUTH-06, ya verificado
+// por el middleware; el ctx lo atestigua).
 func (s *LinkService) stepUp(ctx context.Context, au AuthUser, password string) (*user.User, error) {
-	if err := user.RequireFreshAuth(au.AuthTime, time.Now().UTC(), s.StepUpAge); err != nil {
-		return nil, err
+	if !StepUpSatisfied(ctx, auth.ScopeFederatedLink) {
+		if err := user.RequireFreshAuth(au.AuthTime, time.Now().UTC(), s.StepUpAge); err != nil {
+			return nil, err
+		}
 	}
 	u, err := s.Users.FindByID(ctx, au.ID)
 	if err != nil {
@@ -209,10 +213,13 @@ func (s *LinkService) Callback(ctx context.Context, in LinkCallbackInput) (*Link
 		return nil, &ValidationError{Fields: []FieldError{{Field: "request_id", Reason: "INVALID_FORMAT"}}}
 	}
 	// Step-Up en callback: solo frescura (el password se probó en initiate,
-	// misma ventana de 5min y state ligado al usuario).
-	if err := user.RequireFreshAuth(in.User.AuthTime, time.Now().UTC(), s.StepUpAge); err != nil {
-		s.Metrics.IncLink(string(p), "link", "step_up_required")
-		return nil, err
+	// misma ventana de 5min y state ligado al usuario). Token federated:link
+	// también vale (CU-AUTH-06).
+	if !StepUpSatisfied(ctx, auth.ScopeFederatedLink) {
+		if err := user.RequireFreshAuth(in.User.AuthTime, time.Now().UTC(), s.StepUpAge); err != nil {
+			s.Metrics.IncLink(string(p), "link", "step_up_required")
+			return nil, err
+		}
 	}
 	if u, uerr := s.Users.FindByID(ctx, in.User.ID); uerr != nil || u == nil || u.Status != user.StatusActive {
 		if uerr == nil {

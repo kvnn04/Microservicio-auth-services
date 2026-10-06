@@ -62,3 +62,49 @@ Decisiones (2026-10-05, todas Recommended):
   * **Dado** Redis-down / Kafka-down / PG-down; cuenta federated-only (Step-Up vía re-login fresco).
   * **Cuando** start/confirm.
   * **Entonces** Redis-down → `202/200` vía PG; Kafka-down → `202/200` + doble-mail pendiente; PG-down → `500` sin cambios. Federated stale → `401` hasta re-login; fresco → `202/200` + `sub` intacto.
+
+## 8. Notas de Implementación (desviaciones documentadas, 2026-10-06)
+
+> El comportamiento observable (contratos §1-§2) **no cambia**.
+
+* **D-01 — Step-Up verificado en el servicio, sin middleware `RequireStepUp`.**
+  El plan esbozaba el middleware en la ruta; se verifica en
+  `EmailChangeStartService` vía `StepUpChecker` con el `X-Step-Up-Token`
+  del header. Motivo: `Check` consume el `jti` (single-use); con doble
+  guard (middleware + servicio) el token se quemaría en el primero y el
+  segundo vería `REUSED` (igual que CU-CRED-02). Misma garantía, un solo
+  dueño de la quema.
+* **D-02 — Puerto dividido `Taken` + `Issue` (no `Request` combinado).**
+  El plan esbozaba `Request(...) (rec, taken, err)`; se separó en
+  `Taken` (solo lectura, para el 409 auditado) + `Issue` (Tx) para
+  respetar ISP y testear unicidad sin efectos. Idéntico comportamiento.
+* **D-03 — `GET /email/change/status` (polling) no implementado.**
+  El plan lo marcaba opcional y los contratos no lo listan; el front usa
+  el link del correo. No hay ruta de sondeo que endurecer.
+* **D-04 — `verified=true` implícito (sin columna nueva).**
+  No existe columna `email_verified` (ni en CU-REG-02 la hubo):
+  `ACTIVE` implica verificado y `ConfirmTx` exige `ACTIVE`. El `sub`
+  federado no se toca (la tabla `federated_identities` no se escribe).
+* **D-05 — TTL/rate/quota como consts de dominio, no env.**
+  Igual que D-01 de CU-AUTH-05 y D-05/06 de CU-CRED-01/02: reglas fijas §5
+  (`EmailChangeTTL=15min`, `EmailChangeRatePerHour=3`,
+  `EmailChangeCooldown=60s`, `EmailChangeMaxDay=5`).
+* **D-06 — k6 `emailchange_smoke.js` creado, no ejecutado en vivo** (igual
+  que los demás smoke scripts): pendiente de ventana pre-productiva.
+* **D-07 — E2E Mailhog cubierto vía `email_queue` + integración PG+Redis
+  real, sin SMTP vivo** (igual que CU-AUTH-05/CU-CRED-01): se asertan
+  ambos correos (link al nuevo, aviso mask al viejo), outbox y corte.
+* **D-08 — Modo de verificación de referencia: serie (`-p 1`).**
+  Igual que D-08 de CU-CRED-02: DB local compartida + wipes E2E; los tests
+  llevan re-asegurado + reintento, gate verde en serie y en paralelo.
+
+  **Evidencia de verificación:** `go vet ./...` limpio, `go build ./...` OK,
+  `go test ./... -count=1` verde en serie (`-p 1`) y en paralelo.
+
+  **Security Gate PASSED (STRIDE):** Step-Up mandatorio en start
+  (fast-pass o token 1-uso); `409` solo autenticado + rate + audit (no
+  oráculo anónimo); link 32B + solo hashes + 1-uso-1-activo + supersede;
+  confirm ligado a `requester` (bearer ajeno → 400; modelo §5 SEC-02);
+  corte global + relogin sin auto-login; doble-mail sin token al viejo
+  y mask en respuestas/auditoría; cero secretos/PII en logs, métricas,
+  spans y eventos; `no-store` siempre.

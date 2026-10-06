@@ -75,7 +75,8 @@ func (s *MFAService) Verify(ctx context.Context, in VerifyInput) (*VerifyOutput,
 	return s.verifyTOTP(ctx, ownerID, claims, in.Code, in.RequestID, mfaDevice(in.IP, in.UserAgent), start)
 }
 
-// mfaDevice calcula huella para Issue (mismo esquema que login: ip/24 + ua).
+// mfaDevice calcula huella para Issue (mismo esquema que login: ip/24 + ua)
+// más labels públicos CU-SES-03 (sin GeoIP: Location "").
 func mfaDevice(ip, ua string) auth.Device {
 	if ua == "" {
 		ua = "mfa-verify"
@@ -83,7 +84,10 @@ func mfaDevice(ip, ua string) auth.Device {
 	if ip == "" {
 		ip = "unknown"
 	}
-	return auth.Device{IPHash: loginSHA256(ip + "/24"), UAHash: loginSHA256(ua)}
+	return auth.Device{
+		IPHash: loginSHA256(ip + "/24"), UAHash: loginSHA256(ua),
+		Label: auth.DeviceLabel(ua), IPMasked: auth.MaskIP(ip),
+	}
 }
 
 // verifyTOTP rama TOTP (pasos 3-6 originales).

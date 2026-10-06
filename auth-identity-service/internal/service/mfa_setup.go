@@ -26,10 +26,10 @@ type MFAMetricsPort interface {
 // NoopMFAMetrics default sin telemetría.
 type NoopMFAMetrics struct{}
 
-func (NoopMFAMetrics) IncMFA(string, string)           {}
-func (NoopMFAMetrics) ObserveVerifyDuration(float64)   {}
-func (NoopMFAMetrics) IncChallengeBurned(string)       {}
-func (NoopMFAMetrics) IncReplayBlocked()               {}
+func (NoopMFAMetrics) IncMFA(string, string)         {}
+func (NoopMFAMetrics) ObserveVerifyDuration(float64) {}
+func (NoopMFAMetrics) IncChallengeBurned(string)     {}
+func (NoopMFAMetrics) IncReplayBlocked()             {}
 
 func mfaJitter() time.Duration {
 	n, err := rand.Int(rand.Reader, big.NewInt(31))
@@ -51,16 +51,16 @@ type MFAService struct {
 	BackupStore  auth.BackupCodeStore
 	// CU-AUTH-03: métricas backup (nil-safe).
 	BackupMetrics BackupMetricsPort
-	Users    user.UserRepository
-	Links    user.FederatedLinkStore
-	Sessions auth.SessionIssuer
-	Outbox   OutboxEnqueuer
-	Idem     shared.IdempotencyStore
-	Audit    shared.AuditLogger
-	Metrics  MFAMetricsPort
-	Tracer   TracerPort
-	Issuer   string
-	Sleep    func(time.Duration)
+	Users         user.UserRepository
+	Links         user.FederatedLinkStore
+	Sessions      auth.SessionIssuer
+	Outbox        OutboxEnqueuer
+	Idem          shared.IdempotencyStore
+	Audit         shared.AuditLogger
+	Metrics       MFAMetricsPort
+	Tracer        TracerPort
+	Issuer        string
+	Sleep         func(time.Duration)
 }
 
 func NewMFAService(
@@ -103,6 +103,15 @@ func (s *MFAService) fresh(au AuthUser) error {
 	return user.RequireFreshAuth(au.AuthTime, time.Now().UTC(), user.StepUpMaxAge)
 }
 
+// freshStepUp acepta Step-Up token scopeado (CU-AUTH-06) además de frescura.
+// El middleware RequireStepUp ya verificó el guard; el ctx lo atestigua.
+func (s *MFAService) freshStepUp(ctx context.Context, au AuthUser, scope auth.StepUpScope) error {
+	if StepUpSatisfied(ctx, scope) {
+		return nil
+	}
+	return s.fresh(au)
+}
+
 func (s *MFAService) activeUser(ctx context.Context, userID string) (*user.User, error) {
 	u, err := s.Users.FindByID(ctx, userID)
 	if err != nil {
@@ -131,7 +140,7 @@ type SetupOutput struct {
 func (s *MFAService) Setup(ctx context.Context, in SetupInput) (*SetupOutput, error) {
 	ctx, span := s.Tracer.Start(ctx, "UseCase.MFASetup")
 	defer span.End()
-	if err := s.fresh(in.User); err != nil {
+	if err := s.freshStepUp(ctx, in.User, auth.ScopeMFARotate); err != nil {
 		s.Metrics.IncMFA("setup", "step_up_required")
 		return nil, err
 	}
@@ -185,7 +194,7 @@ type EnableOutput struct {
 func (s *MFAService) Enable(ctx context.Context, in EnableInput) (*EnableOutput, error) {
 	ctx, span := s.Tracer.Start(ctx, "UseCase.MFAEnable")
 	defer span.End()
-	if err := s.fresh(in.User); err != nil {
+	if err := s.freshStepUp(ctx, in.User, auth.ScopeMFARotate); err != nil {
 		s.Metrics.IncMFA("enable", "step_up_required")
 		return nil, err
 	}
