@@ -47,13 +47,13 @@ func newMFAE2E(t *testing.T) *mfaE2E {
 	ctx := context.Background()
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://auth:auth@localhost:5432/auth_db?sslmode=disable"
+		dbURL = "postgres://auth:auth@127.0.0.1:5432/auth_db?sslmode=disable"
 	}
 	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		t.Skipf("sin postgres: %v", err)
 	}
-	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379"})
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		t.Skipf("sin redis: %v", err)
 	}

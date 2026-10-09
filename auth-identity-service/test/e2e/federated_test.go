@@ -137,13 +137,13 @@ func e2eStack(t *testing.T, fake *fakeIdPServer) (http.Handler, *pgxpool.Pool) {
 	ctx := context.Background()
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://auth:auth@localhost:5432/auth_db?sslmode=disable"
+		dbURL = "postgres://auth:auth@127.0.0.1:5432/auth_db?sslmode=disable"
 	}
 	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		t.Skipf("sin postgres: %v", err)
 	}
-	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379"})
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		t.Skipf("sin redis: %v", err)
 	}
@@ -210,7 +210,7 @@ func doAuthorize(t *testing.T, api http.Handler, terms string) (state, cookie st
 
 func readNonce(t *testing.T, state string) string {
 	t.Helper()
-	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:6379"})
 	v, err := rdb.Get(context.Background(), "fed:state:"+state).Result()
 	if err != nil {
 		t.Fatalf("state no persistido: %v", err)
