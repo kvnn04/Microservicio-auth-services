@@ -1,4 +1,6 @@
-package identity
+//go:build e2e
+
+package e2e
 
 // E2E CU-AUTH-02 con TOTP real + PG/Redis reales. Escenarios spec §7.
 

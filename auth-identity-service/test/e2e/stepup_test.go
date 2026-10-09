@@ -1,4 +1,6 @@
-package middleware
+//go:build e2e
+
+package e2e
 
 import (
 	"context"
@@ -9,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"auth-identity-service/internal/adapter/http/middleware"
 	"auth-identity-service/internal/adapter/security"
 	"auth-identity-service/internal/domain/auth"
 	"auth-identity-service/internal/domain/shared"
@@ -99,8 +102,7 @@ func realStepUpService(users map[string]*user.User) (*service.StepUpService, ed2
 
 func stepUpGuardReq(uid string, age time.Duration, token string) *http.Request {
 	req := httptest.NewRequest("POST", "/op", nil)
-	ctx := context.WithValue(req.Context(), authUserKey, uid)
-	ctx = context.WithValue(ctx, authTimeKey, time.Now().UTC().Add(-age))
+	ctx := middleware.ContextWithAuth(req.Context(), uid, time.Now().UTC().Add(-age))
 	if token != "" {
 		req.Header.Set("X-Step-Up-Token", token)
 	}
@@ -118,7 +120,7 @@ func TestRequireStepUp_RealServiceE2E(t *testing.T) {
 
 	// 1. Stale sin token → 401 STEP_UP_REQUIRED con meta scope.
 	rr := httptest.NewRecorder()
-	RequireStepUp(auth.ScopeChangePassword, svc, false)(
+	middleware.RequireStepUp(auth.ScopeChangePassword, svc, false)(
 		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }),
 	).ServeHTTP(rr, stepUpGuardReq(uid, time.Hour, ""))
 	if rr.Code != http.StatusUnauthorized || !strings.Contains(rr.Body.String(), "STEP_UP_REQUIRED") {
@@ -137,7 +139,7 @@ func TestRequireStepUp_RealServiceE2E(t *testing.T) {
 
 	// 3. Op con token → 200 (quema el jti).
 	rr2 := httptest.NewRecorder()
-	RequireStepUp(auth.ScopeChangePassword, svc, false)(
+	middleware.RequireStepUp(auth.ScopeChangePassword, svc, false)(
 		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }),
 	).ServeHTTP(rr2, stepUpGuardReq(uid, time.Hour, out.Token))
 	if rr2.Code != http.StatusOK {
@@ -146,7 +148,7 @@ func TestRequireStepUp_RealServiceE2E(t *testing.T) {
 
 	// 4. Replay mismo token → 401 STEP_UP_REUSED.
 	rr3 := httptest.NewRecorder()
-	RequireStepUp(auth.ScopeChangePassword, svc, false)(
+	middleware.RequireStepUp(auth.ScopeChangePassword, svc, false)(
 		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }),
 	).ServeHTTP(rr3, stepUpGuardReq(uid, time.Hour, out.Token))
 	if rr3.Code != http.StatusUnauthorized || !strings.Contains(rr3.Body.String(), "STEP_UP_REUSED") {
@@ -163,7 +165,7 @@ func TestRequireStepUp_RealServiceE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	rr4 := httptest.NewRecorder()
-	RequireStepUp(auth.ScopeChangePassword, svc, false)(
+	middleware.RequireStepUp(auth.ScopeChangePassword, svc, false)(
 		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }),
 	).ServeHTTP(rr4, stepUpGuardReq(uid, time.Hour, out2.Token))
 	if rr4.Code != http.StatusUnauthorized || !strings.Contains(rr4.Body.String(), "INVALID_STEP_UP") {
@@ -172,7 +174,7 @@ func TestRequireStepUp_RealServiceE2E(t *testing.T) {
 
 	// 6. Fresco sin token → 200 fast-pass.
 	rr5 := httptest.NewRecorder()
-	RequireStepUp(auth.ScopeChangePassword, svc, false)(
+	middleware.RequireStepUp(auth.ScopeChangePassword, svc, false)(
 		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }),
 	).ServeHTTP(rr5, stepUpGuardReq(uid, time.Minute, ""))
 	if rr5.Code != http.StatusOK {

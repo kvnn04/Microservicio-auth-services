@@ -1,4 +1,6 @@
-package identity
+//go:build e2e
+
+package e2e
 
 // E2E CU-REG-06 con fake-IdP + PG/Redis reales. Reutiliza newFakeIdP de
 // federated_e2e_test.go (misma package). Escenarios spec §7.
@@ -16,6 +18,7 @@ import (
 	adapterhttp "auth-identity-service/internal/adapter/http"
 	"auth-identity-service/internal/adapter/http/handlers"
 	"auth-identity-service/internal/adapter/http/middleware"
+	"auth-identity-service/internal/adapter/identity"
 	"auth-identity-service/internal/adapter/persistencia/postgres"
 	redisadapter "auth-identity-service/internal/adapter/persistencia/redis"
 	"auth-identity-service/internal/adapter/security"
@@ -62,7 +65,7 @@ func newLinkE2E(t *testing.T) *linkE2E {
 
 	fake := newFakeIdP(t, "e2e-link-client")
 	defer func() {}()
-	client := NewGoogleOIDCClient(fake.issuer, "e2e-link-client", "s",
+	client := identity.NewGoogleOIDCClient(fake.issuer, "e2e-link-client", "s",
 		"http://localhost:8080/api/v1/auth/federated/google/link/callback", "", "", "")
 	repo := postgres.NewUserRepository(pool, "http://localhost:3000")
 	linkStore := postgres.NewFederatedLinkStore(pool)

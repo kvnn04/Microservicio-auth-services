@@ -99,6 +99,13 @@ func AuthUserFromContext(ctx context.Context) (userID string, authTime time.Time
 	return uid, at, true
 }
 
+// ContextWithAuth inyecta identidad en el contexto (para tests E2E que
+// ejercitan guards sin pasar por RequireAuth).
+func ContextWithAuth(ctx context.Context, userID string, authTime time.Time) context.Context {
+	ctx = context.WithValue(ctx, authUserKey, userID)
+	return context.WithValue(ctx, authTimeKey, authTime)
+}
+
 // AuthSIDFromContext recupera el sid de la sesión actual (""
 // con tokens legacy sin sid: el corte entonces revoca todo, fail-closed).
 func AuthSIDFromContext(ctx context.Context) string {

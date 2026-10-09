@@ -1,4 +1,6 @@
-package identity
+//go:build e2e
+
+package e2e
 
 // E2E CU-REG-04 con fake-IdP (JWKS propia RSA) + Postgres/Redis reales.
 // Requiere infra local (docker compose up). Escenarios spec §7.
@@ -25,6 +27,7 @@ import (
 	adapterhttp "auth-identity-service/internal/adapter/http"
 	"auth-identity-service/internal/adapter/http/handlers"
 	"auth-identity-service/internal/adapter/http/middleware"
+	"auth-identity-service/internal/adapter/identity"
 	"auth-identity-service/internal/adapter/persistencia/postgres"
 	redisadapter "auth-identity-service/internal/adapter/persistencia/redis"
 	"auth-identity-service/internal/adapter/security"
@@ -152,7 +155,7 @@ func e2eStack(t *testing.T, fake *fakeIdPServer) (http.Handler, *pgxpool.Pool) {
 	_, _ = pool.Exec(ctx, "DELETE FROM users")
 	_ = rdb.FlushAll(ctx)
 
-	client := NewGoogleOIDCClient(fake.issuer, fake.clientID, "e2e-secret",
+	client := identity.NewGoogleOIDCClient(fake.issuer, fake.clientID, "e2e-secret",
 		"http://localhost:8080/api/v1/auth/federated/google/callback", "", "", "")
 	repo := postgres.NewUserRepository(pool, "http://localhost:3000")
 	fedRepo := postgres.NewFederatedRepository(pool)
