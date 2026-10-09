@@ -14,21 +14,60 @@ import (
 )
 
 // SEC-02 exacto: m=65536 (64MiB), t=3, p=4, salt 16B, out 32B, PHC.
+// Son los defaults OWASP; por env se pueden bajar SOLO para dev/test
+// (ver ARGON2_* en .env.example). Verify siempre lee params del PHC,
+// así que hashes viejos siguen válidos tras cambiar params.
 const (
-	memory      uint32 = 65536
-	iterations  uint32 = 3
-	parallelism uint8  = 4
-	saltLen     = 16
-	keyLen      uint32 = 32
+	defaultMemory      uint32 = 65536
+	defaultIterations  uint32 = 3
+	defaultParallelism uint8  = 4
+	saltLen            = 16
+	keyLen             uint32 = 32
 )
+
+// Pisos de seguridad: valores bajo esto se elevan al piso (un typo en
+// env nunca debe debilitar el hash en silencio).
+const (
+	minMemory      uint32 = 8192
+	minIterations  uint32 = 1
+	minParallelism uint8  = 1
+)
+
+// Argon2Params costo del hash (solo afecta hashes NUEVOS).
+type Argon2Params struct {
+	Memory      uint32
+	Iterations  uint32
+	Parallelism uint8
+}
+
+// DefaultArgon2Params OWASP para producción.
+func DefaultArgon2Params() Argon2Params {
+	return Argon2Params{Memory: defaultMemory, Iterations: defaultIterations, Parallelism: defaultParallelism}
+}
 
 // Argon2Hasher implementa auth.PasswordHasher. Pepper opcional vía env.
 type Argon2Hasher struct {
 	pepper []byte
+	params Argon2Params
 }
 
 func NewArgon2Hasher(pepper []byte) *Argon2Hasher {
-	return &Argon2Hasher{pepper: pepper}
+	return NewArgon2HasherWithParams(pepper, DefaultArgon2Params())
+}
+
+// NewArgon2HasherWithParams permite costo por ambiente (dev/test).
+// Valores bajo el piso se elevan al piso.
+func NewArgon2HasherWithParams(pepper []byte, p Argon2Params) *Argon2Hasher {
+	if p.Memory < minMemory {
+		p.Memory = minMemory
+	}
+	if p.Iterations < minIterations {
+		p.Iterations = minIterations
+	}
+	if p.Parallelism < minParallelism {
+		p.Parallelism = minParallelism
+	}
+	return &Argon2Hasher{pepper: pepper, params: p}
 }
 
 func (h *Argon2Hasher) Hash(_ context.Context, plain string) (string, error) {
@@ -40,9 +79,9 @@ func (h *Argon2Hasher) Hash(_ context.Context, plain string) (string, error) {
 	if len(h.pepper) > 0 {
 		input = plain + string(h.pepper)
 	}
-	hash := argon2.IDKey([]byte(input), salt, iterations, memory, parallelism, keyLen)
+	hash := argon2.IDKey([]byte(input), salt, h.params.Iterations, h.params.Memory, h.params.Parallelism, keyLen)
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
-		argon2.Version, memory, iterations, parallelism,
+		argon2.Version, h.params.Memory, h.params.Iterations, h.params.Parallelism,
 		base64.RawStdEncoding.EncodeToString(salt),
 		base64.RawStdEncoding.EncodeToString(hash)), nil
 }

@@ -20,7 +20,7 @@
 | Script | Escala | Checks | Latencia | Veredicto |
 |---|---|---|---|---|
 | register_smoke | 10VU/30s | 100% | p95 10.6s pre-caché | OK funcional; Argon2 satura laptop |
-| register_smoke | post-caché HIBP (F-20) | 100% | aislado miss 3.9s → hits 0.9/0.45s; 4VU p50 0.93s p95 1.6s; 10VU inestable en laptop (8-24 iters, p50 11-56s según estado térmico) | Caché verificado (key+métrica); 10VU no medible estable en este hardware |
+| register_smoke | post-caché HIBP + Argon2 dev (F-20/F-22) | 100% | aislado miss 3.9s → hits 0.9/0.45s (32×); 4VU p50 0.93s p95 1.6s; 10VU 10–56s según estado térmico | Hardware: i3-7020U 2 núcleos — 10 Argon2×p4 = 40 threads en 2 cores. PG/Redis/HIBP/pool descartados. Criterio 10VU p95 <2s → staging |
 | uniqueness_timing | — | 100% | p95 4.7s | OK |
 | harvest_abuse | 62 iters | 100% | — | 10×201 → 52×429 con Retry-After |
 | legal_smoke | — | 100% | p95 135ms | OK (8% "failed" son 400 esperados) |

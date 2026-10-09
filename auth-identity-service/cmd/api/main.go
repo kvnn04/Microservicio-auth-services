@@ -44,6 +44,17 @@ func envInt(k string, def int) int {
 	return def
 }
 
+// argon2ParamsFromEnv lee costo Argon2 por ambiente. Sin vars → OWASP
+// producción (m=65536,t=3,p=4). Solo dev/test bajan estos valores.
+func argon2ParamsFromEnv() security.Argon2Params {
+	def := security.DefaultArgon2Params()
+	return security.Argon2Params{
+		Memory:      uint32(envInt("ARGON2_MEMORY_KB", int(def.Memory))),
+		Iterations:  uint32(envInt("ARGON2_TIME", int(def.Iterations))),
+		Parallelism: uint8(envInt("ARGON2_PARALLELISM", int(def.Parallelism))),
+	}
+}
+
 func main() {
 	log := logger.New("api")
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -75,7 +86,7 @@ func main() {
 	idem := redisadapter.NewIdempotencyStore(rdb)
 	frontURL := mustEnv("FRONT_BASE_URL", "http://localhost:3000")
 	repo := postgres.NewUserRepository(pool, frontURL)
-	hasher := security.NewArgon2Hasher(pepper)
+	hasher := security.NewArgon2HasherWithParams(pepper, argon2ParamsFromEnv())
 	breachTimeout := 800 * time.Millisecond
 	if v := os.Getenv("HIBP_TIMEOUT_MS"); v != "" {
 		if d, err := time.ParseDuration(v + "ms"); err == nil {
