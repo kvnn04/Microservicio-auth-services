@@ -6,3 +6,7 @@ bin/
 # Datos efímeros de k6 (tokens revocados, se regeneran por corrida)
 scripts/load/bearers*.json
 scripts/load/pairs.json
+scripts/load/verify_tokens.json
+scripts/load/mfa_users.json
+scripts/load/backup_codes.json
+scripts/load/link_users.json
