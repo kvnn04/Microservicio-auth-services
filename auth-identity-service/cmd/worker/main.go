@@ -41,9 +41,10 @@ func main() {
 	defer pool.Close()
 
 	relay := kafka.NewOutboxRelay(pool, brokers)
-	mailer := kafka.NewEmailMailer(pool,
+	mailer := kafka.NewEmailMailerWithAuth(pool,
 		mustEnv("MAIL_SMTP_ADDR", "localhost:1025"),
-		mustEnv("MAIL_FROM", "no-reply@example.com"))
+		mustEnv("MAIL_FROM", "no-reply@example.com"),
+		os.Getenv("SMTP_USER"), os.Getenv("SMTP_PASS"))
 	mailer.SetFrontURL(mustEnv("FRONT_BASE_URL", "http://localhost:3000"))
 	// Reconciliador CU-REG-02: limpia claves Redis huérfanas cada 10s.
 	var vstore *postgres.CombinedVerificationStore

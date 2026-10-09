@@ -73,7 +73,7 @@ func newMFAE2E(t *testing.T) *mfaE2E {
 	if err != nil {
 		t.Fatal(err)
 	}
-	repo := postgres.NewUserRepository(pool)
+	repo := postgres.NewUserRepository(pool, "http://localhost:3000")
 	stores := postgres.NewMFAStores(pool, redisadapter.NewMFAChallengeCache(rdb), rdb)
 	legacySessions := security.NewSessionIssuer(secret, rdb)
 	sessions := &e2eIssueSessions{}

@@ -73,7 +73,8 @@ func main() {
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr(redisURL)})
 	limiter := redisadapter.NewRateLimiter(rdb, strict)
 	idem := redisadapter.NewIdempotencyStore(rdb)
-	repo := postgres.NewUserRepository(pool)
+	frontURL := mustEnv("FRONT_BASE_URL", "http://localhost:3000")
+	repo := postgres.NewUserRepository(pool, frontURL)
 	hasher := security.NewArgon2Hasher(pepper)
 	breachTimeout := 800 * time.Millisecond
 	if v := os.Getenv("HIBP_TIMEOUT_MS"); v != "" {
@@ -84,7 +85,6 @@ func main() {
 	breach := security.NewHIBPBreachChecker(breachTimeout)
 	tokens := security.NewTokenIssuer()
 	audit := kafka.NewAuditLogger(pool)
-	frontURL := mustEnv("FRONT_BASE_URL", "http://localhost:3000")
 
 	svc := service.NewRegisterUserService(repo, hasher, breach, tokens, repo, idem, audit,
 		adapterhttp.NewPrometheusMetrics(), adapterhttp.NewOtelTracer())

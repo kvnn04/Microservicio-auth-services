@@ -39,10 +39,10 @@ func (s *stepUpHTTPUsers) FindByID(_ context.Context, id string) (*user.User, er
 	}
 	return nil, user.ErrNotFound
 }
-func (s *stepUpHTTPUsers) CreateWithOutbox(_ context.Context, _ *user.User, _ []user.OutboxPayload, _ string, _ string) error {
+func (s *stepUpHTTPUsers) CreateWithOutbox(_ context.Context, _ *user.User, _ []user.OutboxPayload, _ string, _ string, _ *user.VerificationMail) error {
 	return nil
 }
-func (s *stepUpHTTPUsers) CreateWithConsents(_ context.Context, _ *user.User, _ []user.OutboxPayload, _ string, _ user.RegistrationContext) error {
+func (s *stepUpHTTPUsers) CreateWithConsents(_ context.Context, _ *user.User, _ []user.OutboxPayload, _ string, _ user.RegistrationContext, _ *user.VerificationMail) error {
 	return nil
 }
 

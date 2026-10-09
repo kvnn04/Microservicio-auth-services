@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/smtp"
 	"strings"
 	"time"
@@ -14,15 +15,27 @@ import (
 // EmailMailer envía la cola durable email_queue vía SMTP (Mailhog local).
 // El secreto plano NUNCA va a Kafka: vive solo en esta tabla interna hasta
 // ser enviado, luego la fila se marca sent. El relay Kafka no toca este tópico.
+//
+// Autenticación SMTP (Gmail/relays reales): si smtpUser != "" usa
+// smtp.PlainAuth contra el host de smtpAddr. Requiere STARTTLS, o sea
+// puerto 587 (NO 465: Go no hace TLS implícito). Sin usuario = anónimo
+// (Mailhog/dev). El remitente envelope debe ser dirección pelada.
 type EmailMailer struct {
-	pool     *pgxpool.Pool
-	smtpAddr string
-	from     string
-	frontURL string
+	pool      *pgxpool.Pool
+	smtpAddr  string
+	smtpUser  string
+	smtpPass  string
+	from      string
+	frontURL  string
 }
 
 func NewEmailMailer(pool *pgxpool.Pool, smtpAddr, from string) *EmailMailer {
 	return &EmailMailer{pool: pool, smtpAddr: smtpAddr, from: from}
+}
+
+// NewEmailMailerWithAuth igual + credenciales SMTP (vault en prod).
+func NewEmailMailerWithAuth(pool *pgxpool.Pool, smtpAddr, from, user, pass string) *EmailMailer {
+	return &EmailMailer{pool: pool, smtpAddr: smtpAddr, from: from, smtpUser: user, smtpPass: pass}
 }
 
 // SetFrontURL configura la base para links login/forgot del notify (CU-REG-03).
@@ -83,7 +96,20 @@ func (m *EmailMailer) send(to, subject, body string) error {
 		"To: " + to + "\r\n" +
 		"Subject: " + subject + "\r\n" +
 		"Content-Type: text/plain; charset=UTF-8\r\n\r\n" + body
-	return smtp.SendMail(m.smtpAddr, nil, m.from, []string{to}, []byte(msg))
+	return smtp.SendMail(m.smtpAddr, m.smtpAuth(), m.from, []string{to}, []byte(msg))
+}
+
+// smtpAuth devuelve PlainAuth solo si hay usuario configurado (nil = anónimo,
+// comportamiento anterior para Mailhog/dev).
+func (m *EmailMailer) smtpAuth() smtp.Auth {
+	if m.smtpUser == "" {
+		return nil
+	}
+	host, _, err := net.SplitHostPort(m.smtpAddr)
+	if err != nil {
+		host = m.smtpAddr
+	}
+	return smtp.PlainAuth("", m.smtpUser, m.smtpPass, host)
 }
 
 // RenderVerificationBody plantilla link+OTP (documentada, sin PII en logs).

@@ -128,10 +128,10 @@ func (f *fakeIssueUsers) FindByID(_ context.Context, id string) (*user.User, err
 	}
 	return nil, user.ErrNotFound
 }
-func (f *fakeIssueUsers) CreateWithOutbox(_ context.Context, _ *user.User, _ []user.OutboxPayload, _ string, _ string) error {
+func (f *fakeIssueUsers) CreateWithOutbox(_ context.Context, _ *user.User, _ []user.OutboxPayload, _ string, _ string, _ *user.VerificationMail) error {
 	return nil
 }
-func (f *fakeIssueUsers) CreateWithConsents(_ context.Context, _ *user.User, _ []user.OutboxPayload, _ string, _ user.RegistrationContext) error {
+func (f *fakeIssueUsers) CreateWithConsents(_ context.Context, _ *user.User, _ []user.OutboxPayload, _ string, _ user.RegistrationContext, _ *user.VerificationMail) error {
 	return nil
 }
 

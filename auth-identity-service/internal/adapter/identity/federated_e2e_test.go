@@ -154,7 +154,7 @@ func e2eStack(t *testing.T, fake *fakeIdPServer) (http.Handler, *pgxpool.Pool) {
 
 	client := NewGoogleOIDCClient(fake.issuer, fake.clientID, "e2e-secret",
 		"http://localhost:8080/api/v1/auth/federated/google/callback", "", "", "")
-	repo := postgres.NewUserRepository(pool)
+	repo := postgres.NewUserRepository(pool, "http://localhost:3000")
 	fedRepo := postgres.NewFederatedRepository(pool)
 	cache := redisadapter.NewVerificationCache(rdb)
 	vstore := postgres.NewCombinedVerificationStore(pool, cache, "http://localhost:3000", nil)

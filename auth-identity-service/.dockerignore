@@ -2,6 +2,11 @@
 .env
 bin/
 *.exe
+*.test
+coverage.out
 tmp_*/
+docs/
+*.md
+scripts/load/
 .idea/
 .vscode/

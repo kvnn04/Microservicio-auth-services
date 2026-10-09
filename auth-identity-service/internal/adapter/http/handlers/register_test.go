@@ -27,15 +27,15 @@ func (s *stubRepo) FindByEmailNormalized(_ context.Context, e string) (*user.Use
 func (s *stubRepo) FindByID(_ context.Context, _ string) (*user.User, error) {
 	return nil, user.ErrNotFound
 }
-func (s *stubRepo) CreateWithOutbox(_ context.Context, u *user.User, _ []user.OutboxPayload, _ string, _ string) error {
+func (s *stubRepo) CreateWithOutbox(_ context.Context, u *user.User, _ []user.OutboxPayload, _ string, _ string, _ *user.VerificationMail) error {
 	if _, ok := s.users[u.EmailNormalized]; ok {
 		return user.ErrDuplicateShadow
 	}
 	s.users[u.EmailNormalized] = u
 	return nil
 }
-func (s *stubRepo) CreateWithConsents(_ context.Context, u *user.User, _ []user.OutboxPayload, _ string, _ user.RegistrationContext) error {
-	return s.CreateWithOutbox(context.Background(), u, nil, "", "")
+func (s *stubRepo) CreateWithConsents(_ context.Context, u *user.User, _ []user.OutboxPayload, _ string, _ user.RegistrationContext, _ *user.VerificationMail) error {
+	return s.CreateWithOutbox(context.Background(), u, nil, "", "", nil)
 }
 
 type stubHasher struct{}
@@ -52,7 +52,10 @@ func (stubBreach) IsCompromised(_ context.Context, _ string) (bool, error) { ret
 type stubIssuer struct{}
 
 func (stubIssuer) Generate() (string, string, error) { return "plain", "tokhash", nil }
-func (stubIssuer) HashToken(p string) string         { return p }
+func (stubIssuer) GeneratePair() (string, string, string, string, error) {
+	return "plain", "tokhash", "87654321", "otphash", nil
+}
+func (stubIssuer) HashToken(p string) string { return p }
 
 type stubOutbox struct{}
 

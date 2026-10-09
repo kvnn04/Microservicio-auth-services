@@ -20,10 +20,13 @@ type UserRepository interface {
 	FindByID(ctx context.Context, id string) (*User, error)
 	// CreateWithOutbox persiste usuario + eventos outbox + token verificación
 	// + idempotency key en UNA transacción atómica (legado CU-REG-01, sin ledger).
-	CreateWithOutbox(ctx context.Context, u *User, outbox []OutboxPayload, tokenHash string, requestID string) error
+	// mail (fix 2026-10-07) encola email_queue link+OTP en la MISMA Tx;
+	// nil = sin email (preserva llamadas viejas). Si el INSERT falla,
+	// revierte TODO (fail-closed: sin email encolado no hay cuenta).
+	CreateWithOutbox(ctx context.Context, u *User, outbox []OutboxPayload, tokenHash string, requestID string, mail *VerificationMail) error
 	// CreateWithConsents extiende CreateWithOutbox con ledger legal (CU-REG-05):
 	// misma Tx + 2 consent_records + evento legal.consent_recorded.
-	CreateWithConsents(ctx context.Context, u *User, outbox []OutboxPayload, tokenHash string, reg RegistrationContext) error
+	CreateWithConsents(ctx context.Context, u *User, outbox []OutboxPayload, tokenHash string, reg RegistrationContext, mail *VerificationMail) error
 }
 
 // OutboxPayload es el DTO de dominio para la fila outbox (sin imports infra).

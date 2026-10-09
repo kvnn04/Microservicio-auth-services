@@ -11,7 +11,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS activated_at TIMESTAMPTZ;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS activated_method TEXT CHECK (activated_method IN ('link', 'otp'));
 
 -- Cola durable de emails con secreto plano para el worker SMTP.
--- El plano NUNCA va a Kafka; es tabla interna consumida por el worker.
+-- El plano NUNCA va a Kafka: es tabla interna consumida por el worker.
 CREATE TABLE IF NOT EXISTS email_queue (
   id UUID PRIMARY KEY,
   to_email TEXT NOT NULL,

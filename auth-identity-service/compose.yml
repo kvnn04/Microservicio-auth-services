@@ -2,15 +2,15 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: auth
-      POSTGRES_PASSWORD: auth
-      POSTGRES_DB: auth_db
+      POSTGRES_USER: ${POSTGRES_USER:-auth}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-auth}
+      POSTGRES_DB: ${POSTGRES_DB:-auth_db}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U auth -d auth_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-auth} -d ${POSTGRES_DB:-auth_db}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -24,6 +24,20 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # Migraciones versionadas (una vez, en orden 01..19; idempotentes).
+  # Se envía cada archivo COMPLETO en una sola query (protocolo simple de
+  # PG): así comentarios y bloques DO $$ se parsean bien. NO usar
+  # x-multi-statement (su splitter ingenuo rompe `;` en comentarios/DO).
+  migrate:
+    image: migrate/migrate:v4.18.2
+    volumes:
+      - ./scripts/migrations:/migrations:ro
+    command: ["-path=/migrations", "-database=postgres://${POSTGRES_USER:-auth}:${POSTGRES_PASSWORD:-auth}@postgres:5432/${POSTGRES_DB:-auth_db}?sslmode=disable", "up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   kafka:
     image: bitnami/kafka:3.7
@@ -46,9 +60,15 @@ services:
       - "1025:1025"
       - "8025:8025"
 
-  # Entorno de desarrollo: la API y el worker corren containerizados.
-  # Nada se ejecuta en tu máquina salvo Docker.
-  #   docker compose up -d --build postgres redis mailhog api worker
+  # Levantada completa: nada corre en tu máquina salvo Docker.
+  # Variables: compose interpola ${VAR:-default} tomando .env automáticamente
+  # si existe (cp .env.example .env y completa las CAMBIAR), o variables
+  # de entorno del shell. Sin .env arranca igual con defaults SOLO-DEV.
+  #   docker compose up -d --build            # sin Kafka (relay en espera)
+  #   docker compose --profile kafka up -d --build   # con Kafka
+  #   curl http://localhost:8080/healthz  |  Mailhog en http://localhost:8025
+  # Ver logs: docker compose logs -f api worker
+  # Apagar: docker compose down  (con -v si quieres borrar la DB local)
   api:
     build:
       context: .
@@ -56,19 +76,34 @@ services:
     ports:
       - "8080:8080"
     environment:
-      DATABASE_URL: postgres://auth:auth@postgres:5432/auth_db?sslmode=disable
+      DATABASE_URL: postgres://${POSTGRES_USER:-auth}:${POSTGRES_PASSWORD:-auth}@postgres:5432/${POSTGRES_DB:-auth_db}?sslmode=disable
       REDIS_URL: redis://redis:6379/0
-      KAFKA_BROKERS: kafka:9092
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
       HTTP_ADDR: ":8080"
-      FRONT_BASE_URL: http://localhost:3000
-      ENV: development
-      HIBP_TIMEOUT_MS: 800
-      PASSWORD_PEPPER: ""
+      FRONT_BASE_URL: ${FRONT_BASE_URL:-http://localhost:3000}
+      API_PUBLIC_BASE: ${API_PUBLIC_BASE:-http://localhost:8080}
+      ENV: ${ENV:-development}
+      PASSWORD_PEPPER: ${PASSWORD_PEPPER:-}
+      HIBP_TIMEOUT_MS: ${HIBP_TIMEOUT_MS:-800}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-32bytes-solo-dev}
+      SESSION_SIGNING_KEY: ${SESSION_SIGNING_KEY:-}
+      SESSION_SIGNING_KID: ${SESSION_SIGNING_KID:-2026-10-a}
+      SESSION_ISS: ${SESSION_ISS:-https://auth.example.com}
+      SESSION_AUD: ${SESSION_AUD:-api}
+      MFA_SECRETS_KEY: ${MFA_SECRETS_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      MFA_ISSUER: ${MFA_ISSUER:-Example}
+      ALLOWED_PROVIDERS: ${ALLOWED_PROVIDERS:-google}
+      FEDERATED_GOOGLE_CLIENT_ID: ${FEDERATED_GOOGLE_CLIENT_ID:-}
+      FEDERATED_GOOGLE_CLIENT_SECRET: ${FEDERATED_GOOGLE_CLIENT_SECRET:-}
+      FEDERATED_GOOGLE_REDIRECT_URI: ${FEDERATED_GOOGLE_REDIRECT_URI:-http://localhost:8080/api/v1/auth/federated/google/callback}
+      ENFORCE_STEP_UP_TOKEN: ${ENFORCE_STEP_UP_TOKEN:-false}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   worker:
@@ -77,13 +112,15 @@ services:
       dockerfile: Dockerfile
     entrypoint: ["/worker"]
     environment:
-      DATABASE_URL: postgres://auth:auth@postgres:5432/auth_db?sslmode=disable
+      DATABASE_URL: postgres://${POSTGRES_USER:-auth}:${POSTGRES_PASSWORD:-auth}@postgres:5432/${POSTGRES_DB:-auth_db}?sslmode=disable
       REDIS_URL: redis://redis:6379/0
-      KAFKA_BROKERS: kafka:9092
-      MAIL_SMTP_ADDR: mailhog:1025
-      MAIL_FROM: no-reply@example.com
-      FRONT_BASE_URL: http://localhost:3000
-      ENV: development
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
+      MAIL_SMTP_ADDR: ${MAIL_SMTP_ADDR:-mailhog:1025}
+      MAIL_FROM: ${MAIL_FROM:-no-reply@example.com}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      FRONT_BASE_URL: ${FRONT_BASE_URL:-http://localhost:3000}
+      ENV: ${ENV:-development}
     depends_on:
       postgres:
         condition: service_healthy
@@ -91,6 +128,8 @@ services:
         condition: service_healthy
       mailhog:
         condition: service_started
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:

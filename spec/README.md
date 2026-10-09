@@ -15,8 +15,8 @@ Este catálogo centraliza todos los requerimientos funcionales del sistema Auth 
 ## Módulo 1: Flujo de Registro (Sign Up)
 | ID | Caso de Uso | Estado | Carpeta Spec | Responsable / Agente |
 | :--- | :--- | :---: | :--- | :--- |
-| CU-REG-01 | Registro Clásico con Credenciales | 🟢 COMPLETED | [\CU-REG-01-registro-credenciales\](./CU-REG-01-registro-credenciales) | dev_golang/qa/seguridad |
-| CU-REG-02 | Verificación de Identidad Obligatoria | 🟢 COMPLETED | [\CU-REG-02-verificacion-identidad\](./CU-REG-02-verificacion-identidad) | dev_golang/qa/seguridad |
+| CU-REG-01 | Registro Clásico con Credenciales | 🟢 COMPLETED (fix email inicial F-16..F-18) | [\CU-REG-01-registro-credenciales\](./CU-REG-01-registro-credenciales) | dev_golang/qa/seguridad |
+| CU-REG-02 | Verificación de Identidad Obligatoria | 🟢 COMPLETED (re-verificación V-16..V-17) | [\CU-REG-02-verificacion-identidad\](./CU-REG-02-verificacion-identidad) | dev_golang/qa/seguridad |
 | CU-REG-03 | Validación de Unicidad en Tiempo Real | 🟢 COMPLETED | [\CU-REG-03-validacion-unicidad\](./CU-REG-03-validacion-unicidad) | dev_golang/qa/seguridad |
 | CU-REG-04 | Registro Federado (OAuth2 / OIDC) | 🟢 COMPLETED | [\CU-REG-04-registro-federado\](./CU-REG-04-registro-federado) | dev_golang/qa/seguridad |
 | CU-REG-05 | Aceptación de Términos y Políticas | 🟢 COMPLETED | [\CU-REG-05-aceptacion-terminos\](./CU-REG-05-aceptacion-terminos) | dev_golang/qa/seguridad |

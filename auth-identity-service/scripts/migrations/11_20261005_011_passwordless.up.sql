@@ -1,5 +1,5 @@
 -- CU-AUTH-05: secreto efímero dual por email (link 32B + OTP 8d).
--- Solo hashes SHA-256 hex; planos solo transitorios al email_queue interno.
+-- Solo hashes SHA-256 hex: planos solo transitorios al email_queue interno.
 CREATE TABLE IF NOT EXISTS passwordless_tokens (
   token_hash TEXT PRIMARY KEY,
   otp_hash TEXT NOT NULL UNIQUE,

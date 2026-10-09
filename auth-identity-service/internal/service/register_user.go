@@ -27,6 +27,8 @@ type MetricsPort interface {
 	IncUniquenessProbe(outcome string)
 	IncNotifyOwner(throttled bool)
 	IncIPBlocked()
+	// Fix email inicial (2026-10-07): distingue onboarding de resends.
+	IncInitialEmail(result string) // queued|error
 }
 
 type Span interface{ End() }
@@ -48,6 +50,7 @@ func (NoopMetrics) IncHibpFallback()                    {}
 func (NoopMetrics) IncUniquenessProbe(string)            {}
 func (NoopMetrics) IncNotifyOwner(bool)                  {}
 func (NoopMetrics) IncIPBlocked()                         {}
+func (NoopMetrics) IncInitialEmail(string)                {}
 
 type noopSpan struct{}
 
@@ -107,7 +110,7 @@ type RegisterUserService struct {
 	Users     user.UserRepository
 	Hasher    auth.PasswordHasher
 	Breach    auth.BreachChecker
-	Tokens    auth.VerificationTokenIssuer
+	Tokens    VerificationPairIssuer
 	Outbox    OutboxEnqueuer
 	Idem      shared.IdempotencyStore
 	Audit     shared.AuditLogger
@@ -128,7 +131,7 @@ func NewRegisterUserService(
 	users user.UserRepository,
 	hasher auth.PasswordHasher,
 	breach auth.BreachChecker,
-	tokens auth.VerificationTokenIssuer,
+	tokens VerificationPairIssuer,
 	outbox OutboxEnqueuer,
 	idem shared.IdempotencyStore,
 	audit shared.AuditLogger,
@@ -338,12 +341,15 @@ func (s *RegisterUserService) Execute(ctx context.Context, in RegisterUserInput)
 	s.Metrics.IncUniquenessProbe(string(user.ProbeUnique))
 
 	userID := newUUIDv7()
-	plainToken, tokenHash, terr := s.Tokens.Generate()
+	// Fix email inicial (2026-10-07): par token+OTP (mismo generador del
+	// resend). El plano viaja SOLO en memoria hasta el adapter, que lo
+	// encola en email_queue en la misma Tx (nunca a logs/Kafka/respuestas).
+	tokenPlain, tokenHash, otpPlain, otpHash, terr := s.Tokens.GeneratePair()
 	if terr != nil {
 		s.Metrics.IncRegistration("error")
 		return nil, fmt.Errorf("generate token: %w", auth.ErrInfra)
 	}
-	_ = plainToken
+	mail := &user.VerificationMail{TokenPlain: tokenPlain, TokenHash: tokenHash, OTPPlain: otpPlain, OTPHash: otpHash}
 	u, uerr := user.NewUser(userID, trimOriginal(in.EmailRaw), normalized, pwdHash, in.TermsVersion, in.PrivacyVersion, now)
 	if uerr != nil {
 		s.Metrics.IncRegistration("validation_failed")
@@ -375,9 +381,9 @@ func (s *RegisterUserService) Execute(ctx context.Context, in RegisterUserInput)
 		// CU-REG-05: misma Tx + ledger (source=classic) + evento legal.
 		cerr = s.Users.CreateWithConsents(ctx, u, events, tokenHash, user.RegistrationContext{
 			IPHash: ipHash, UAHash: uaHash, Source: "classic", RequestID: in.RequestID,
-		})
+		}, mail)
 	} else {
-		cerr = s.Users.CreateWithOutbox(ctx, u, events, tokenHash, in.RequestID)
+		cerr = s.Users.CreateWithOutbox(ctx, u, events, tokenHash, in.RequestID, mail)
 	}
 	if cerr != nil {
 		if errors.Is(cerr, user.ErrDuplicateShadow) || errors.Is(cerr, user.ErrAlreadyExists) {
@@ -387,6 +393,7 @@ func (s *RegisterUserService) Execute(ctx context.Context, in RegisterUserInput)
 			return &RegisterUserOutput{Status: "pending_verification", IsShadowDuplicate: true, HibpFallback: hibpFallback}, nil
 		}
 		s.Metrics.IncRegistration("error")
+		s.Metrics.IncInitialEmail("error")
 		return nil, fmt.Errorf("create user: %w", auth.ErrInfra)
 	}
 	_ = s.Audit.Log(ctx, "user.register", map[string]string{
@@ -394,6 +401,7 @@ func (s *RegisterUserService) Execute(ctx context.Context, in RegisterUserInput)
 		"ip_hash": ipHash, "user_agent_hash": uaHash, "terms_version": in.TermsVersion,
 	})
 	s.Metrics.IncRegistration("success")
+	s.Metrics.IncInitialEmail("queued")
 	s.Metrics.ObserveRegistrationDuration(time.Since(start).Seconds())
 	if s.Legal != nil {
 		cm := consentMetrics(s.Consents)

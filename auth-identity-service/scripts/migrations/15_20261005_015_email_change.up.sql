@@ -1,5 +1,5 @@
 -- CU-CRED-03: prueba de control del NUEVO correo (link 32B, 1 uso, 1 activo).
--- Solo hashes SHA-256 hex; el plano vive una vez en el SMTP al nuevo buzón.
+-- Solo hashes SHA-256 hex: el plano vive una vez en el SMTP al nuevo buzón.
 CREATE TABLE IF NOT EXISTS email_change_tokens (
   token_hash TEXT PRIMARY KEY,
   requester UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

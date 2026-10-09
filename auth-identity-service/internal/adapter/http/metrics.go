@@ -29,6 +29,10 @@ var (
 	ipBlocks = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "ip_blocks_total", Help: "IPs bloqueadas progresivamente.",
 	})
+	// Fix email inicial (2026-10-07): distingue onboarding de resends.
+	initialEmailTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "initial_verification_email_total", Help: "Email inicial de verificación por resultado.",
+	}, []string{"result"})
 )
 
 // PrometheusMetrics implementa service.MetricsPort.
@@ -47,6 +51,9 @@ func (PrometheusMetrics) IncNotifyOwner(t bool) {
 	notifyOwner.WithLabelValues(s).Inc()
 }
 func (PrometheusMetrics) IncIPBlocked() { ipBlocks.Inc() }
+func (PrometheusMetrics) IncInitialEmail(r string) {
+	initialEmailTotal.WithLabelValues(r).Inc()
+}
 
 // BlockCounter adapta IncIPBlocked para el middleware (sin importar service).
 type BlockCounter struct{ M *PrometheusMetrics }

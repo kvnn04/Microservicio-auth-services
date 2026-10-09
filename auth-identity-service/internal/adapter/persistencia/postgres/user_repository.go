@@ -18,11 +18,12 @@ import (
 
 // UserRepository implementa user.UserRepository + service.OutboxEnqueuer.
 type UserRepository struct {
-	pool *pgxpool.Pool
+	pool     *pgxpool.Pool
+	frontURL string
 }
 
-func NewUserRepository(pool *pgxpool.Pool) *UserRepository {
-	return &UserRepository{pool: pool}
+func NewUserRepository(pool *pgxpool.Pool, frontURL string) *UserRepository {
+	return &UserRepository{pool: pool, frontURL: frontURL}
 }
 
 func (r *UserRepository) FindByEmailNormalized(ctx context.Context, email string) (*user.User, error) {
@@ -80,18 +81,18 @@ func (r *UserRepository) FindByID(ctx context.Context, id string) (*user.User, e
 	return &u, nil
 }
 
-func (r *UserRepository) CreateWithOutbox(ctx context.Context, u *user.User, outbox []user.OutboxPayload, tokenHash string, requestID string) error {
-	return r.createTx(ctx, u, outbox, tokenHash, requestID, nil)
+func (r *UserRepository) CreateWithOutbox(ctx context.Context, u *user.User, outbox []user.OutboxPayload, tokenHash string, requestID string, mail *user.VerificationMail) error {
+	return r.createTx(ctx, u, outbox, tokenHash, requestID, nil, mail)
 }
 
 // CreateWithConsents extiende la Tx con ledger legal (CU-REG-05): 2 filas
 // consent_records (ON CONFLICT DO NOTHING) + evento legal.consent_recorded.
 // Sin consentimiento no hay cuenta: todo revierte junto.
-func (r *UserRepository) CreateWithConsents(ctx context.Context, u *user.User, outbox []user.OutboxPayload, tokenHash string, reg user.RegistrationContext) error {
-	return r.createTx(ctx, u, outbox, tokenHash, reg.RequestID, &reg)
+func (r *UserRepository) CreateWithConsents(ctx context.Context, u *user.User, outbox []user.OutboxPayload, tokenHash string, reg user.RegistrationContext, mail *user.VerificationMail) error {
+	return r.createTx(ctx, u, outbox, tokenHash, reg.RequestID, &reg, mail)
 }
 
-func (r *UserRepository) createTx(ctx context.Context, u *user.User, outbox []user.OutboxPayload, tokenHash string, requestID string, reg *user.RegistrationContext) error {
+func (r *UserRepository) createTx(ctx context.Context, u *user.User, outbox []user.OutboxPayload, tokenHash string, requestID string, reg *user.RegistrationContext, mail *user.VerificationMail) error {
 	uid, err := uuid.Parse(u.ID)
 	if err != nil {
 		return fmt.Errorf("invalid user id: %w", err)
@@ -117,12 +118,32 @@ func (r *UserRepository) createTx(ctx context.Context, u *user.User, outbox []us
 		return user.ErrDuplicateShadow
 	}
 	expiresAt := time.Now().UTC().Add(auth.VerificationTTL)
+	otpHash := sql.NullString{}
+	if mail != nil && mail.OTPHash != "" {
+		otpHash = sql.NullString{String: mail.OTPHash, Valid: true}
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO verification_tokens
-		(user_id, token_hash, expires_at, attempts, max_attempts, consumed)
-		VALUES ($1,$2,$3,0,$4,FALSE)`,
-		uid, tokenHash, expiresAt, auth.VerificationMaxAttempts,
+		(user_id, token_hash, otp_hash, expires_at, attempts, max_attempts, consumed)
+		VALUES ($1,$2,$3,$4,0,$5,FALSE)`,
+		uid, tokenHash, otpHash, expiresAt, auth.VerificationMaxAttempts,
 	); err != nil {
 		return fmt.Errorf("insert verification token: %w", err)
+	}
+	// Fix email inicial (2026-10-07): encola link+OTP en la MISMA Tx
+	// (plantilla idéntica al resend). Si falla → rollback total (fail-closed).
+	// Sin mail (nil o sin plano) no se encola nada (rama shadow/legacy).
+	if mail != nil && mail.TokenPlain != "" {
+		link := r.frontURL + "/verify?token=" + mail.TokenPlain
+		body := "Verifica tu cuenta (expira en 15 minutos, un solo uso):\n\n" +
+			"Enlace: " + link + "\n"
+		if mail.OTPPlain != "" {
+			body += "Codigo: " + mail.OTPPlain + "\n"
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO email_queue (id, to_email, subject, body_text, status)
+			VALUES (gen_random_uuid(),$1,'Verifica tu cuenta',$2,'pending')`,
+			u.EmailOriginal, body); err != nil {
+			return fmt.Errorf("insert verification email: %w", err)
+		}
 	}
 	for _, e := range outbox {
 		eid, perr := uuid.Parse(e.EventID)

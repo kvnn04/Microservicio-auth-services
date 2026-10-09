@@ -24,3 +24,7 @@
 - [x] T-13: Ejecutar script de carga/estrés (k6) validando percentiles p95/p99. `scripts/load/verify_smoke.js` 100 VUs 3min (70/20/10): p95 <300ms hit / <800ms fallback, p99 <600/<1200, `|p50(valid)-p50(invalid)|<40ms`, 429 esperados excluidos. Adjunta summary + decisión si Redis-hit <95% (revisar TTL/evicción).
 - [x] T-14: Ejecutar auditoría AppSec (Security Gate de STRIDE, PII y timing attacks). Checklist: sin 404/410 oráculo, ConstantTime + delay 40-80ms, sin token/code/email en logs/audit (solo hashes), OTP 8 dígitos + token 32B CSPRNG, 1 activo + supersede, rate-limit dual efectivo, body 4KB, SQL parametrizado, GET idempotente anti-prefetch documentado, `Cache-Control: no-store`. Dictamen `seguridad.md` PASSED.
 - [x] T-15: Actualizar `spec/project-tracker.json` reflejando el caso de uso como `COMPLETED`. Solo tras T-12/13/14 verdes. `READY_FOR_DEV → IN_DEVELOPMENT → IN_TESTING → COMPLETED`, `tasks_summary 15/15`, `last_updated` UTC.
+
+## Re-verificación por fix email inicial (2026-10-07, sin cambios de código aquí)
+- [x] V-16: Re-correr suites (`domain`, `service`, stores verificación) + `go vet` dominio limpio tras el fix REG-01. El resend supersede al par inicial sin cambios (cubierto por tests existentes + probado E2E).
+- [x] V-17: E2E no-regresión: link inicial del email activa (`active`), resend posterior lo supersede (viejo → `400`), timing oráculo intacto. Evidencia + cerrar tracker.

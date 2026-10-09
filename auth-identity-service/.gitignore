@@ -3,3 +3,6 @@ bin/
 *.exe
 .idea/
 .vscode/
+# Datos efímeros de k6 (tokens revocados, se regeneran por corrida)
+scripts/load/bearers*.json
+scripts/load/pairs.json

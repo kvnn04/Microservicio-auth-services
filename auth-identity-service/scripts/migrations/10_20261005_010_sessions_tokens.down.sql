@@ -1,4 +1,4 @@
--- CU-AUTH-04 down: revierte sesiones enterprise (solo dev; en prod se rota, no se borra).
+-- CU-AUTH-04 down: revierte sesiones enterprise (solo dev: en prod se rota, no se borra).
 DROP TABLE IF EXISTS refresh_hashes;
 DROP TABLE IF EXISTS refresh_families;
 DROP TABLE IF EXISTS sessions;

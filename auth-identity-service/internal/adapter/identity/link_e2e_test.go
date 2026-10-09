@@ -64,7 +64,7 @@ func newLinkE2E(t *testing.T) *linkE2E {
 	defer func() {}()
 	client := NewGoogleOIDCClient(fake.issuer, "e2e-link-client", "s",
 		"http://localhost:8080/api/v1/auth/federated/google/link/callback", "", "", "")
-	repo := postgres.NewUserRepository(pool)
+	repo := postgres.NewUserRepository(pool, "http://localhost:3000")
 	linkStore := postgres.NewFederatedLinkStore(pool)
 	linkStates := redisadapter.NewRedisLinkStateStore(rdb)
 	hasher := security.NewArgon2Hasher(nil)

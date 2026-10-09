@@ -1,0 +1,19 @@
+# Secretos y entorno (jamás al repo)
+.env
+*.env.local
+
+# Binarios y build
+bin/
+*.exe
+*.test
+coverage.out
+
+# Datos efímeros de pruebas de carga (se regeneran por corrida)
+auth-identity-service/scripts/load/bearers*.json
+auth-identity-service/scripts/load/pairs.json
+
+# Editores y SO
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

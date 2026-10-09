@@ -15,6 +15,7 @@ type mockRepo struct {
 	byEmail map[string]*user.User
 	created []*user.User
 	outbox  [][]user.OutboxPayload
+	lastMail *user.VerificationMail
 	onCreate func(u *user.User) error
 }
 
@@ -34,10 +35,12 @@ func (m *mockRepo) FindByID(_ context.Context, id string) (*user.User, error) {
 	}
 	return nil, user.ErrNotFound
 }
-func (m *mockRepo) CreateWithOutbox(_ context.Context, u *user.User, outbox []user.OutboxPayload, _ string, _ string) error {
+func (m *mockRepo) CreateWithOutbox(_ context.Context, u *user.User, outbox []user.OutboxPayload, _ string, _ string, mail *user.VerificationMail) error {
+	m.lastMail = mail
 	return m.create(u, outbox)
 }
-func (m *mockRepo) CreateWithConsents(_ context.Context, u *user.User, outbox []user.OutboxPayload, _ string, _ user.RegistrationContext) error {
+func (m *mockRepo) CreateWithConsents(_ context.Context, u *user.User, outbox []user.OutboxPayload, _ string, _ user.RegistrationContext, mail *user.VerificationMail) error {
+	m.lastMail = mail
 	return m.create(u, outbox)
 }
 func (m *mockRepo) create(u *user.User, outbox []user.OutboxPayload) error {
@@ -74,7 +77,10 @@ func (m *mockBreach) IsCompromised(_ context.Context, _ string) (bool, error) {
 type mockIssuer struct{}
 
 func (mockIssuer) Generate() (string, string, error) { return "plain-token", "hash123", nil }
-func (mockIssuer) HashToken(p string) string         { return "hash:" + p }
+func (mockIssuer) GeneratePair() (string, string, string, string, error) {
+	return "plain-token", "hash123", "12345678", "hashotp", nil
+}
+func (mockIssuer) HashToken(p string) string { return "hash:" + p }
 
 type mockOutbox struct{ enqueued [][]user.OutboxPayload }
 
@@ -105,10 +111,11 @@ type mockMetrics struct {
 	probes   map[string]int
 	notify   map[bool]int
 	blocked  int
+	emails   map[string]int
 }
 
 func newMockMetrics() *mockMetrics {
-	return &mockMetrics{counts: map[string]int{}, probes: map[string]int{}, notify: map[bool]int{}}
+	return &mockMetrics{counts: map[string]int{}, probes: map[string]int{}, notify: map[bool]int{}, emails: map[string]int{}}
 }
 func (m *mockMetrics) IncRegistration(s string)              { m.counts[s]++ }
 func (m *mockMetrics) ObserveRegistrationDuration(_ float64) {}
@@ -116,6 +123,7 @@ func (m *mockMetrics) IncHibpFallback()                      { m.fallback++ }
 func (m *mockMetrics) IncUniquenessProbe(o string)           { m.probes[o]++ }
 func (m *mockMetrics) IncNotifyOwner(t bool)                  { m.notify[t]++ }
 func (m *mockMetrics) IncIPBlocked()                          { m.blocked++ }
+func (m *mockMetrics) IncInitialEmail(r string)               { m.emails[r]++ }
 
 func testSvc(repo *mockRepo, breach *mockBreach) (*RegisterUserService, *mockMetrics) {
 	if breach == nil {
@@ -205,5 +213,53 @@ func TestRegisterIdempotentReplay(t *testing.T) {
 	out, err := s.Execute(context.Background(), in)
 	if err != nil || !out.IsIdempotentReplay || len(repo.created) != n {
 		t.Fatalf("replay: err=%v out=%+v", err, out)
+	}
+}
+
+// Fix email inicial (F-17): el par plano viaja al store + métrica queued.
+func TestRegisterEnqueuesInitialEmail(t *testing.T) {
+	repo := newMockRepo()
+	s, metrics := testSvc(repo, nil)
+	if _, err := s.Execute(context.Background(), validInput()); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if repo.lastMail == nil || repo.lastMail.TokenPlain == "" || repo.lastMail.OTPPlain == "" {
+		t.Fatalf("mail con planos: %+v", repo.lastMail)
+	}
+	if repo.lastMail.TokenHash == "" || repo.lastMail.OTPHash == "" {
+		t.Fatalf("mail con hashes: %+v", repo.lastMail)
+	}
+	if metrics.emails["queued"] != 1 {
+		t.Fatalf("métrica queued: %v", metrics.emails)
+	}
+}
+
+// Rama shadow: sin create, sin mail, sin métrica de email.
+func TestRegisterShadowNoEmail(t *testing.T) {
+	repo := newMockRepo()
+	s, metrics := testSvc(repo, nil)
+	repo.byEmail["test@example.com"] = &user.User{ID: uuid.NewString(), EmailNormalized: "test@example.com", Status: user.StatusActive}
+	if _, err := s.Execute(context.Background(), validInput()); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(repo.created) != 0 || repo.lastMail != nil {
+		t.Fatal("shadow no crea ni encola")
+	}
+	if len(metrics.emails) != 0 {
+		t.Fatalf("sin métrica email en shadow: %v", metrics.emails)
+	}
+}
+
+// Fallo de infra en create: error opaco + métrica error (fail-closed: el
+// adapter revierte la Tx completa, verificado a nivel integración PG).
+func TestRegisterCreateErrorMetricsEmail(t *testing.T) {
+	repo := newMockRepo()
+	s, metrics := testSvc(repo, nil)
+	repo.onCreate = func(u *user.User) error { return errors.New("db down") }
+	if _, err := s.Execute(context.Background(), validInput()); err == nil {
+		t.Fatal("esperaba error")
+	}
+	if metrics.emails["error"] != 1 {
+		t.Fatalf("métrica error: %v", metrics.emails)
 	}
 }

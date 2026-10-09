@@ -30,6 +30,23 @@
       FindByID(ctx context.Context, id string) (*User, error)
     }
     ```
+    Fix email inicial (2026-10-07): las firmas reales vigentes
+    `CreateWithOutbox(ctx, u, outbox, tokenHash, requestID)` y
+    `CreateWithConsents(ctx, u, outbox, tokenHash, reg)` crecen con
+    `mail *VerificationMail` final (nil = sin email, preserva llamadas viejas):
+    ```go
+    // internal/domain/user/verification_mail.go (nuevo, puro, sin infra)
+    // Planos SOLO en memoria del request; el adapter persiste AMBOS hashes
+    // (token + OTP en verification_tokens, si no el OTP del email inicial
+    // no verificaría) y encola el email en la MISMA Tx.
+    type VerificationMail struct {
+      TokenPlain, TokenHash string
+      OTPPlain, OTPHash     string
+    }
+    CreateWithOutbox(ctx, u, outbox, tokenHash, requestID string, mail *VerificationMail) error
+    CreateWithConsents(ctx, u, outbox, tokenHash string, reg RegistrationContext, mail *VerificationMail) error
+    ```
+    El adapter persiste hashes + `INSERT email_queue` (link `frontURL/verify?token=` + OTP, plantilla idéntica al resend) en la MISMA Tx; si el INSERT falla → rollback total (fail-closed Q1). `NewUserRepository` gana `frontURL` (wiring en `cmd/api/main.go`, igual que el verification store).
   * `internal/domain/auth/hasher.go`:
     ```go
     type PasswordHasher interface { Hash(ctx context.Context, plain string) (string, error); Verify(ctx context.Context, plain, encodedHash string) (bool, error) }
@@ -54,8 +71,8 @@
   2. Chequea idempotencia: `IdempotencyStore.Get(RequestID)` si hit → retorna respuesta cacheada (status + body hash) sin re-ejecutar.
   3. Intenta `Users.FindByEmailNormalized`. `found=true/false` se guarda pero NO ramifica respuesta; ambas ramas ejecutan `Hasher.Hash(dummyOrReal)` + `sleep jitter 80-120ms`.
   4. Si `found==true` → construye `OutboxEvent{auth.security.registration_attempted.v1}` (email seguridad) + retorna `Output{Status: Pending, IsShadowDuplicate: true}` (handler mapea a mismo 201).
-  5. Si `found==false` → `Hasher.Hash(real)`, `Tokens.Generate()`, `user.NewUser(...)`, `Users.CreateWithOutbox(user + [user.registered, email.verification_requested, audit])` en tx. Si `UniqueViolation` por carrera → trata como `found==true` (shadow).
-  6. Instrumenta métrica + span + audit en todos los caminos. Nunca retorna `user_id` real al handler (solo `status`); el handler no distingue shadow.
+  5. Si `found==false` → `Hasher.Hash(real)`, `Tokens.GeneratePair()` (token+OTP; el campo `Tokens` cambia de `auth.VerificationTokenIssuer` a `VerificationPairIssuer` service-local — el mismo `security.TokenIssuer` ya lo implementa, solo cambia el wiring de tipo en `main.go`; el `Generate()` solo-token cuyo plano se descartaba era la causa raíz del gap), `user.NewUser(...)`, `Users.CreateWithOutbox(user + [user.registered, email.verification_requested, audit], mail{TokenPlain, OTPPlain, ExpiresAt})` en tx (email_queue link+OTP en la misma Tx; fail-closed). Si `UniqueViolation` por carrera → trata como `found==true` (shadow). Rama shadow: sin email, con hash dummy + jitter (timing indistinguible; delta del INSERT solo en creación real, ≪ jitter — verificado en test).
+  6. Instrumenta métrica + span + audit en todos los caminos + `initial_verification_email_total{queued|error}` (puerto `MetricsPort.IncInitialEmail`; distingue onboarding de resends). Nunca retorna `user_id` real al handler (solo `status`); el handler no distingue shadow.
   7. Errores tipados dominio: `ErrValidation`, `ErrRateLimited` (lanzado por middleware, no servicio), `ErrInfra` → handler mapea a HTTP.
 
 ### Capa de Adaptadores (`internal/adapter/`)

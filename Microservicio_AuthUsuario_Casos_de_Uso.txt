@@ -322,3 +322,6 @@ Versión 4
 ├── Dockerfile                      # Compilación multi-stage automatizada para generar una imagen productiva limpia (~20MB)
 ├── go.mod                          # Manifiesto de módulos de Go y control estricto de librerías de terceros
 └── go.sum                          # Firmas criptográficas que garantizan la integridad de las dependencias descargadas
+
+
+
