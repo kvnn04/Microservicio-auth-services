@@ -28,25 +28,11 @@ func (h *HIBPBreachChecker) IsCompromised(ctx context.Context, password string) 
 	sum := sha1.Sum([]byte(password))
 	full := strings.ToUpper(hex.EncodeToString(sum[:]))
 	prefix, suffix := full[:5], full[5:]
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		"https://api.pwnedpasswords.com/range/"+prefix, nil)
+	raw, err := h.FetchRange(ctx, prefix)
 	if err != nil {
 		return false, err
 	}
-	req.Header.Set("User-Agent", "auth-identity-service/1.0")
-	resp, err := h.client.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("hibp request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("hibp status %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return false, err
-	}
-	sc := bufio.NewScanner(strings.NewReader(string(body)))
+	sc := bufio.NewScanner(strings.NewReader(raw))
 	for sc.Scan() {
 		if idx := strings.Index(sc.Text(), ":"); idx > 0 {
 			if strings.ToUpper(strings.TrimSpace(sc.Text()[:idx])) == suffix {
@@ -55,4 +41,28 @@ func (h *HIBPBreachChecker) IsCompromised(ctx context.Context, password string) 
 		}
 	}
 	return false, nil
+}
+
+// FetchRange devuelve el cuerpo crudo del rango HIBP (una llamada).
+// Lo usa el decorador de caché para persistirlo sin re-preguntar.
+func (h *HIBPBreachChecker) FetchRange(ctx context.Context, prefix string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://api.pwnedpasswords.com/range/"+prefix, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "auth-identity-service/1.0")
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("hibp request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("hibp status %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
 }

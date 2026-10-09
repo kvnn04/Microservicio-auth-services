@@ -19,7 +19,8 @@
 
 | Script | Escala | Checks | Latencia | Veredicto |
 |---|---|---|---|---|
-| register_smoke | 10VU/30s | 100% | p95 10.6s | OK funcional; Argon2 satura laptop |
+| register_smoke | 10VU/30s | 100% | p95 10.6s pre-caché | OK funcional; Argon2 satura laptop |
+| register_smoke | post-caché HIBP (F-20) | 100% | aislado miss 3.9s → hits 0.9/0.45s; 4VU p95 4.2s; 10VU p95 27s | Caché verificado (key+métrica); concurrencia limitada por CPU, no por red |
 | uniqueness_timing | — | 100% | p95 4.7s | OK |
 | harvest_abuse | 62 iters | 100% | — | 10×201 → 52×429 con Retry-After |
 | legal_smoke | — | 100% | p95 135ms | OK (8% "failed" son 400 esperados) |

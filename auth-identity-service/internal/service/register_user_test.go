@@ -6,9 +6,12 @@ import (
 	"testing"
 	"time"
 
+	"auth-identity-service/internal/adapter/security"
 	"auth-identity-service/internal/domain/user"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 type mockRepo struct {
@@ -261,5 +264,30 @@ func TestRegisterCreateErrorMetricsEmail(t *testing.T) {
 	}
 	if metrics.emails["error"] != 1 {
 		t.Fatalf("métrica error: %v", metrics.emails)
+	}
+}
+
+// F-21: el servicio opera con el checker cacheado real (inner mock sin
+// FetchRange → passthrough sin guardar; el contrato no cambia).
+func TestRegisterWithCachedChecker(t *testing.T) {
+	mr, err := miniredis.Run()
+	if err != nil {
+		t.Skipf("sin miniredis: %v", err)
+	}
+	defer mr.Close()
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer rdb.Close()
+	cached := security.NewCachedBreachChecker(&mockBreach{}, rdb, nil)
+	repo := newMockRepo()
+	metrics := newMockMetrics()
+	s := NewRegisterUserService(repo, &mockHasher{hash: "$argon2id$v=19$m=65536,t=3,p=4$salt$hash"},
+		cached, mockIssuer{}, &mockOutbox{}, newMockIdem(), mockAudit{}, metrics, NoopTracer{})
+	s.Sleep = func(time.Duration) {}
+	out, err := s.Execute(context.Background(), validInput())
+	if err != nil || out.Status != "pending_verification" || out.HibpFallback {
+		t.Fatalf("err=%v out=%+v", err, out)
+	}
+	if len(repo.created) != 1 {
+		t.Fatal("debió crear")
 	}
 }

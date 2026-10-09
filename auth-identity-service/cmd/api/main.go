@@ -82,7 +82,9 @@ func main() {
 			breachTimeout = d
 		}
 	}
-	breach := security.NewHIBPBreachChecker(breachTimeout)
+	breach := security.NewCachedBreachChecker(
+		security.NewHIBPBreachChecker(breachTimeout),
+		rdb, adapterhttp.NewPrometheusHibpCacheMetrics())
 	tokens := security.NewTokenIssuer()
 	audit := kafka.NewAuditLogger(pool)
 
