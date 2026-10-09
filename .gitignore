@@ -17,3 +17,6 @@ auth-identity-service/scripts/load/pairs.json
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Personal (no se commitea)
+GUIA-PROYECTO-CV.md
