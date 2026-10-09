@@ -20,7 +20,7 @@ export const options = {
 const tList = new Trend('sessions_list_iso');
 const tRevoke = new Trend('sessions_revoke_iso');
 
-const BASE = 'http://localhost:8081/api/v1/auth';
+const BASE = 'http://localhost:8080/api/v1/auth';
 const pairs = new SharedArray('pairs', function () {
   return JSON.parse(open('./pairs.json'));
 });

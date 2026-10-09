@@ -30,7 +30,7 @@ export const options = {
 const tStart = new Trend('emailchange_start');
 const tConfirmBad = new Trend('emailchange_confirm_bad');
 
-const BASE = 'http://localhost:8081/api/v1/auth/email/change';
+const BASE = 'http://localhost:8080/api/v1/auth/email/change';
 
 function reqID() {
   return `emailchange-${__VU}-${__ITER}-${Date.now()}-${Math.random()}`;
@@ -39,7 +39,7 @@ function reqID() {
 // Login bueno sin MFA → Bearer (fresco para fast-pass en start).
 function loginBearer(email) {
   const res = http.post(
-    'http://localhost:8081/api/v1/auth/login',
+    'http://localhost:8080/api/v1/auth/login',
     JSON.stringify({ email, password: 'Str0ng!Passw0rd-2026' }),
     {
       headers: {

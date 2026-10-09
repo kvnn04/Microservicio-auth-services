@@ -52,7 +52,7 @@ function totp(secretHex, counter) {
 
 function login(email) {
   const res = http.post(
-    'http://localhost:8082/api/v1/auth/login',
+    'http://localhost:8080/api/v1/auth/login',
     JSON.stringify({ email: email, password: 'Str0ng!Passw0rd-2026' }),
     {
       headers: {
@@ -88,7 +88,7 @@ export default function () {
     code = totp(u.secret_hex, counter);
   }
   const vr = http.post(
-    'http://localhost:8082/api/v1/auth/mfa/verify',
+    'http://localhost:8080/api/v1/auth/mfa/verify',
     JSON.stringify({ mfa_token: mfaToken, code: code }),
     {
       headers: {
@@ -111,7 +111,7 @@ export default function () {
     if (lr2.status === 202) {
       const t2 = lr2.json().data.mfa_token;
       const vr2 = http.post(
-        'http://localhost:8082/api/v1/auth/mfa/verify',
+        'http://localhost:8080/api/v1/auth/mfa/verify',
         JSON.stringify({ mfa_token: t2, code: code }),
         {
           headers: {

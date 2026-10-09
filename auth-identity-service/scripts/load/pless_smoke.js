@@ -32,7 +32,7 @@ const tStartNo = new Trend('pless_start_noeligible');
 const tVerifyGood = new Trend('pless_verify_good');
 const tVerifyBad = new Trend('pless_verify_bad');
 
-const BASE = 'http://localhost:8081/api/v1/auth/passwordless';
+const BASE = 'http://localhost:8080/api/v1/auth/passwordless';
 
 function reqID() {
   return `pless-${__VU}-${__ITER}-${Date.now()}-${Math.random()}`;

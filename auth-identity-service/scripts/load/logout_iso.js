@@ -21,7 +21,7 @@ const tLogout = new Trend('logout_ok');
 const tReplay = new Trend('logout_replay');
 const cFirst = new Counter('logout_first_total');
 
-const BASE = 'http://localhost:8081/api/v1/auth';
+const BASE = 'http://localhost:8080/api/v1/auth';
 const bearers = new SharedArray('bearers', function () {
   return JSON.parse(open('./bearers.json'));
 });

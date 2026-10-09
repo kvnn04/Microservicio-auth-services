@@ -27,7 +27,7 @@ const getTrend = new Trend('legal_get_duration');
 const oldTrend = new Trend('legal_old_duration');
 
 export function getActive() {
-  const res = http.get('http://localhost:8081/api/v1/legal/active', {
+  const res = http.get('http://localhost:8080/api/v1/legal/active', {
     headers: { 'X-Forwarded-For': `10.4.${__VU}.${__ITER % 250}` },
   });
   check(res, { '200': (r) => r.status === 200 });
@@ -42,7 +42,7 @@ export function postOld() {
     terms_version: 'v2026.09',
     privacy_version: 'v2026.10',
   });
-  const res = http.post('http://localhost:8081/api/v1/auth/register', payload, {
+  const res = http.post('http://localhost:8080/api/v1/auth/register', payload, {
     headers: {
       'Content-Type': 'application/json',
       'X-Request-ID': `old-${__VU}-${__ITER}-${Date.now()}`,

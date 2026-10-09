@@ -26,7 +26,7 @@ export default function () {
   const auth = { Authorization: `Bearer ${u.token}` };
   if (u.pw) {
     const res = http.post(
-      'http://localhost:8082/api/v1/auth/federated/google/link',
+      'http://localhost:8080/api/v1/auth/federated/google/link',
       JSON.stringify({ current_password: 'Str0ng!Passw0rd-2026' }),
       {
         headers: {
@@ -40,7 +40,7 @@ export default function () {
     check(res, { '200 initiate': (r) => r.status === 200 });
     if (res.status === 200) initTrend.add(res.timings.duration);
   } else {
-    const res = http.get('http://localhost:8082/api/v1/auth/federated/linked', {
+    const res = http.get('http://localhost:8080/api/v1/auth/federated/linked', {
       headers: { ...auth, 'X-Forwarded-For': `10.7.${__VU}.${__ITER % 250}` },
     });
     check(res, { '200 list': (r) => r.status === 200 });

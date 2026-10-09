@@ -30,7 +30,7 @@ export const options = {
 const tChallenge = new Trend('stepup_challenge');
 const tGuardFast = new Trend('stepup_guard_fast');
 
-const BASE = 'http://localhost:8081/api/v1/auth';
+const BASE = 'http://localhost:8080/api/v1/auth';
 
 function reqID() {
   return `stepup-${__VU}-${__ITER}-${Date.now()}-${Math.random()}`;

@@ -23,7 +23,7 @@ export default function () {
   const idx = (__VU * 1000 + __ITER) % pairs.length;
   const p = pairs[idx];
   const res = http.get(
-    `http://localhost:8081/api/v1/auth/federated/google/callback?code=${p.code}&state=${p.state}`,
+    `http://localhost:8080/api/v1/auth/federated/google/callback?code=${p.code}&state=${p.state}`,
     {
       headers: {
         'X-Request-ID': `${__VU}-${__ITER}-${Date.now()}`,

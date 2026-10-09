@@ -26,7 +26,7 @@ function login(email, pw, native) {
   };
   if (native) headers['X-Client-Type'] = 'native';
   return http.post(
-    'http://localhost:8081/api/v1/auth/login',
+    'http://localhost:8080/api/v1/auth/login',
     JSON.stringify({ email, password: pw }),
     { headers },
   );

@@ -19,7 +19,7 @@ const tPending = new Trend('login_pending');
 
 function post(email, pw, fwd) {
   return http.post(
-    'http://localhost:8081/api/v1/auth/login',
+    'http://localhost:8080/api/v1/auth/login',
     JSON.stringify({ email: email, password: pw }),
     {
       headers: {

@@ -29,7 +29,7 @@ export const options = {
 const tStart = new Trend('pwdreset_start');
 const tConfirmBad = new Trend('pwdreset_confirm_bad');
 
-const BASE = 'http://localhost:8081/api/v1/auth/password/reset';
+const BASE = 'http://localhost:8080/api/v1/auth/password/reset';
 
 function reqID() {
   return `pwdreset-${__VU}-${__ITER}-${Date.now()}-${Math.random()}`;

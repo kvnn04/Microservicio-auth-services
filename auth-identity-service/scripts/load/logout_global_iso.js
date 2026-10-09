@@ -18,7 +18,7 @@ export const options = {
 
 const tGlobal = new Trend('global_iso');
 
-const BASE = 'http://localhost:8081/api/v1/auth';
+const BASE = 'http://localhost:8080/api/v1/auth';
 const bearers = new SharedArray('bearers', function () {
   return JSON.parse(open('./bearers_global.json'));
 });

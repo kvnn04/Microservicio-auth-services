@@ -16,7 +16,7 @@ export const options = {
 
 const tChange = new Trend('pwdchange_ok');
 
-const BASE = 'http://localhost:8081/api/v1/auth';
+const BASE = 'http://localhost:8080/api/v1/auth';
 
 function reqID() {
   return `pwdchange-${__VU}-${__ITER}-${Date.now()}-${Math.random()}`;

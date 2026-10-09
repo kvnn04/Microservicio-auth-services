@@ -21,7 +21,7 @@ export const options = {
 const tList = new Trend('sessions_list');
 const tRevoke = new Trend('sessions_revoke');
 
-const BASE = 'http://localhost:8081/api/v1/auth';
+const BASE = 'http://localhost:8080/api/v1/auth';
 
 function reqID(p) {
   return `ses-${p}-${exec.scenario.iterationInTest}-${Date.now()}-${Math.random()}`;

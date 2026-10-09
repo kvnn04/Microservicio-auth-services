@@ -22,7 +22,7 @@ const invalidTrend = new Trend('bk_invalid_duration');
 
 function login(email) {
   return http.post(
-    'http://localhost:8082/api/v1/auth/login',
+    'http://localhost:8080/api/v1/auth/login',
     JSON.stringify({ email: email, password: 'Str0ng!Passw0rd-2026' }),
     {
       headers: {
@@ -36,7 +36,7 @@ function login(email) {
 
 function verify(token, code) {
   return http.post(
-    'http://localhost:8082/api/v1/auth/mfa/verify',
+    'http://localhost:8080/api/v1/auth/mfa/verify',
     JSON.stringify({ mfa_token: token, backup_code: code }),
     {
       headers: {
