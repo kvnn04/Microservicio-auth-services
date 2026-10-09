@@ -32,3 +32,5 @@
 - El correo passwordless trae token Y código; el de reset trae solo enlace.
 - El usuario `e2e-pless@mail.test` queda como fixture reutilizable con clave
   `N3w-E2E!Pless-2026`.
+- **Nota 2026-10-09:** la suite E2E (`test/e2e`, que borra tablas) eliminó
+  este fixture de la DB de desarrollo. Re-registrarlo si se necesita.

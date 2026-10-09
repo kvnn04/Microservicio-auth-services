@@ -31,3 +31,5 @@
   `handlers/email_change_test.go:181` (start y confirm lo chequean).
 - Fixture final: `e2e-mail2@mail.test` / `T3st-E2E!Mail-2026` (el viejo
   `e2e-mail@mail.test` ya no existe como login).
+- **Nota 2026-10-09:** fixture eliminado de la DB por corridas E2E (borran
+  tablas). Re-registrar si se necesita.

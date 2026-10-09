@@ -27,3 +27,5 @@
   `refresh_token` (`Path=/api/v1/auth/refresh`, HttpOnly, Lax). El access
   nunca va en cookie.
 - Fixture: `e2e-pless@mail.test` / `N3w-E2E!Pless-2026` (0 sesiones al cierre).
+- **Nota 2026-10-09:** fixture eliminado de la DB por corridas E2E (borran
+  tablas). Re-registrar si se necesita.

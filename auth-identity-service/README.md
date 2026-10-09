@@ -30,6 +30,13 @@ Esto levanta: `postgres` + `redis` + `migrate` (01–19 automático) + `api`
 Con Kafka: `docker compose --profile kafka up -d --build`.
 Base URL de aquí en más: `http://localhost:8080`.
 
+**Tests:** unitarios con `go test ./...` (sin infra). E2E con
+`go test -tags e2e ./test/e2e` (pide Postgres/Redis reales y
+`DATABASE_URL` con la clave del contenedor; ver `test/e2e/doc.go`).
+Ojo: los E2E **borran tablas** de la DB de desarrollo (users, outbox,
+email_queue, mfa_*, federated_identities, consent_records,
+verification_tokens) y hacen `FlushAll` en Redis.
+
 ## 2. Convenciones (valen para todo)
 
 - Todo es JSON: éxito `{success:true, data:{...}}`, error
